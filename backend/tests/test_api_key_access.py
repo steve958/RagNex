@@ -21,7 +21,7 @@ class Setup:
 
     async def build(self) -> "Setup":
         r = await self.http.post(
-            "/api/v1/auth/register", json={"email": f"key_{uuid.uuid4().hex}@example.com", "password": "pw"}
+            "/api/v1/auth/register", json={"email": f"key_{uuid.uuid4().hex}@example.com", "password": "test-password-1"}
         )
         assert r.status_code == 200, r.text
         self.jwt = {"Authorization": f"Bearer {r.json()['access_token']}"}

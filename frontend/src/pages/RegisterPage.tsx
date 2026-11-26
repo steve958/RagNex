@@ -2,6 +2,10 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { NoTenantError, useAuth } from '../store/auth';
+import { errorDetail } from '../services/errors';
+
+// Matches the backend's NewPassword rule (backend/app/core/validation.py).
+const MIN_PASSWORD_LENGTH = 8;
 
 export const RegisterPage: React.FC = () => {
   const { register } = useAuth();
@@ -15,6 +19,10 @@ export const RegisterPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+      return;
+    }
     if (password !== confirm) {
       setError('Passwords do not match');
       return;
@@ -23,9 +31,8 @@ export const RegisterPage: React.FC = () => {
     try {
       await register(email, password);
       navigate('/');
-    } catch (err: any) {
-      const msg = err instanceof NoTenantError ? err.message : err?.response?.data?.detail ?? 'Registration failed';
-      setError(typeof msg === 'string' ? msg : 'Registration failed');
+    } catch (err: unknown) {
+      setError(err instanceof NoTenantError ? err.message : errorDetail(err, 'Registration failed'));
     } finally {
       setSubmitting(false);
     }
@@ -58,8 +65,14 @@ export const RegisterPage: React.FC = () => {
             className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-50 focus:outline-none focus:ring-1 focus:ring-sky-500"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            minLength={MIN_PASSWORD_LENGTH}
+            maxLength={1024}
+            aria-describedby="password-hint"
             required
           />
+          <p id="password-hint" className="text-xs text-slate-500">
+            At least {MIN_PASSWORD_LENGTH} characters.
+          </p>
         </div>
         <div className="space-y-1">
           <label className="block text-sm text-slate-300" htmlFor="confirm">

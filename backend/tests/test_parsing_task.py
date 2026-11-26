@@ -21,7 +21,7 @@ async def test_parsing_task_updates_document_and_status_api(monkeypatch):
     transport = httpx.ASGITransport(app=app)
 
     email = f"u_{uuid.uuid4().hex}@example.com"
-    password = "pw"
+    password = "test-password-1"
 
     # Patch out external deps.
     async def fake_download(self, tenant_id, object_key):

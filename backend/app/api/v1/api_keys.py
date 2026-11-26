@@ -3,13 +3,16 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.api_keys import generate_api_key, hash_api_key
 from backend.app.core.config import settings
 from backend.app.core.db import get_db
+from backend.app.core.validation import Name
 from backend.app.core.deps import require_session_user, require_tenant_membership
 from backend.app.models.api_key import APIKey
 
@@ -18,8 +21,9 @@ router = APIRouter(dependencies=[Depends(require_session_user)])
 
 
 class CreateAPIKeyRequest(BaseModel):
-    name: str
-    scopes: list[str] = []
+    name: Name()
+    # Only scopes that are enforced (see core/deps.py); unknown ones used to be stored.
+    scopes: list[Literal["read", "write"]] = Field(default_factory=list, max_length=2)
 
 
 class APIKeyCreatedResponse(BaseModel):

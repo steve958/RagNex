@@ -14,6 +14,7 @@ from backend.app.core.db import get_db
 from backend.app.core.deps import require_tenant_membership
 from backend.app.models.document import Document
 from backend.app.models.knowledge_base import KnowledgeBase
+from backend.app.core.validation import safe_filename
 from backend.app.services.parsing import SUPPORTED_EXTENSIONS
 from backend.app.services.storage import StorageService
 from backend.app.tasks.parsing import parse_document
@@ -167,7 +168,10 @@ async def upload_document(
     if kb is None:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
 
-    filename = file.filename or "upload"
+    # Client-supplied names may carry paths, control characters or direction overrides that
+    # disguise the real extension; store and show a cleaned version (storage uses it too).
+    filename = safe_filename(file.filename or "")
+    file.filename = filename
     ext = os.path.splitext(filename)[1].lower()
     if ext not in SUPPORTED_EXTENSIONS:
         raise HTTPException(
