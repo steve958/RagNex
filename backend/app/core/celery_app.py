@@ -12,8 +12,15 @@ celery_app = Celery(
     backend=settings.redis_url,
 )
 
-# Ensure tasks under backend.app.tasks are discoverable by workers.
-celery_app.autodiscover_tasks(["backend.app.tasks"])
+# Task modules a worker must import to register tasks. (autodiscover_tasks only looks for
+# a `tasks` submodule, i.e. backend.app.tasks.tasks, which doesn't exist, so a worker
+# started with `-A backend.app.core.celery_app.celery_app` registered nothing.)
+celery_app.conf.include = [
+    "backend.app.tasks.parsing",
+    "backend.app.tasks.embedding",
+    "backend.app.tasks.indexing",
+    "backend.app.tasks.purge",
+]
 
 # Queues
 default_exchange = Exchange("ragnex", type="direct")
