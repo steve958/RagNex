@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     llm_model: str = "llama3"
     llm_temperature: float = 0.2
     llm_max_tokens: int = 2048
+    # Total tokens the model accepts (prompt + answer). Chat prompts are trimmed to fit,
+    # keeping llm_max_tokens free for the answer. Set this to the model's real context size.
+    llm_context_window: int = 8192
 
     # S3-compatible storage (MinIO)
     s3_endpoint_url: str = "http://localhost:9000"

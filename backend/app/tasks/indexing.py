@@ -65,6 +65,21 @@ async def _update_doc(
         await eng.dispose()
 
 
+async def _is_deleted(tenant_id: uuid.UUID, document_id: uuid.UUID) -> bool:
+    eng = create_async_engine(settings.database_url, pool_pre_ping=True)
+    Session = async_sessionmaker(eng, expire_on_commit=False)
+    try:
+        async with Session() as db:
+            deleted_at = (
+                await db.execute(
+                    sa.select(Document.deleted_at).where(Document.id == document_id, Document.tenant_id == tenant_id)
+                )
+            ).one_or_none()
+        return deleted_at is None or deleted_at[0] is not None  # missing counts as deleted
+    finally:
+        await eng.dispose()
+
+
 async def _load_embedding_config(tenant_id: uuid.UUID) -> EmbeddingConfig:
     """Load per-tenant embedding config, falling back to server defaults."""
 
@@ -131,6 +146,8 @@ def index_document(self, document_id: str, tenant_id: str) -> dict:
                 ).scalar_one_or_none()
                 if doc is None:
                     return {"document_id": document_id, "tenant_id": tenant_id, "status": "missing"}
+                if doc.deleted_at is not None:
+                    return {"document_id": document_id, "tenant_id": tenant_id, "status": "deleted"}
 
                 chunk_rows = (
                     await db.execute(
@@ -184,12 +201,20 @@ def index_document(self, document_id: str, tenant_id: str) -> dict:
 
         def _do_bulk():
             # raise_on_error=False lets us inspect failures and decide retry.
-            return bulk(client, actions, raise_on_error=False, raise_on_exception=False)
+            # refresh=wait_for: entries must be visible to delete_by_query, or a purge that
+            # runs right after this could miss them.
+            return bulk(client, actions, raise_on_error=False, raise_on_exception=False, refresh="wait_for")
 
         ok, errors = await asyncio.to_thread(_do_bulk)
         if errors:
             # Surface only a small summary to the caller.
             raise RuntimeError(f"OpenSearch bulk index had failures (ok={ok}, errors={len(errors)})")
+
+        # Deleted while we were embedding/indexing? Its purge may have run before our
+        # writes landed, so remove them ourselves.
+        if await _is_deleted(tenant_uuid, doc_uuid):
+            await asyncio.to_thread(os_svc.delete_document_chunks, tenant_uuid, doc_uuid)
+            return {"document_id": document_id, "tenant_id": tenant_id, "status": "deleted"}
 
         await _update_doc(tenant_uuid, doc_uuid, status="indexed", progress=1.0, message="indexed", completed_at=_now())
         return {"document_id": document_id, "tenant_id": tenant_id, "status": "indexed", "chunks": len(actions)}

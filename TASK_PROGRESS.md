@@ -432,12 +432,13 @@ Notes:
 - 2026-11-26: Added streaming: `POST /api/v1/chat/sessions/{id}/messages/stream` (SSE events `meta` → `delta`* → `done`, or `error`). Native streaming in `OllamaLLM` (NDJSON) and `OpenAICompatibleLLM` (SSE). Shared turn setup in `_prepare_turn`. The user message is committed before streaming; on generation failure no assistant message is saved. Frontend `ChatPage` renders tokens live via `streamChatMessage` (fetch + `SseParser`). Verified end-to-end against Ollama `gemma2:2b`, directly and through the Vite proxy.
 - 2026-11-26: Fixed `OpenSearchService.ensure_chunks_policy` failing with 409 once the ISM policy exists (it runs on every search and indexing call).
 - 2026-11-26: Frontend now sends `X-Tenant-ID` (resolved after login), the backend has CORS, and Vite proxies `/api` in dev. Before this, tenant-scoped calls from the UI could not succeed.
-- Open: a stream aborted by the client (tab closed) saves no assistant message; partial answers are discarded.
+- 2026-11-26: Streamed answers now run in a background task and are saved even if the client disconnects. Answers still being generated when the server restarts are lost.
+- 2026-11-26: Multi-KB chat. `SearchService.search` takes `kb_ids`, and a session searches all of its live knowledge bases in one query (`terms` filter on the tenant index), ranked together. Previously it searched only an arbitrary first one. The chat page creates sessions over any checked KBs and shows KB names. Tests: `backend/tests/test_multi_kb.py` (real stack).
 
 ### P4-4: Message History & Context Management
 - [x] Create message history endpoints
 - [x] `GET /api/v1/chat/sessions/{id}/messages`
-- [ ] Implement context window management
+- [x] Implement context window management
 - [ ] Add message summarization for long conversations
 - [x] Implement message pagination
 - [x] Add message metadata (timestamps, token counts)
@@ -446,6 +447,7 @@ Notes:
 - 2026-01-15: Added `GET /api/v1/chat/sessions/{session_id}/messages` in `backend/app/api/v1/chat.py` with offset/limit pagination, scoped to the current tenant and user.
 - 2026-01-15: Each history item now includes a naive `token_estimate` alongside role/content/citations/timestamps, to support future context window management.
 - 2026-01-15: Context window trimming and true summarization are deferred; current RAG pipeline uses full per-session history.
+- 2026-11-26: Added `backend/app/services/prompt_budget.py`. Prompts fit `LLM_CONTEXT_WINDOW` (default 8192) minus `LLM_MAX_TOKENS`, using conservative token estimates and filling at most 90% of the window. Priority: system prompt and question, then retrieved chunks by rank, then the newest complete exchanges. Unanswered questions are left out of history. Citations list only the chunks actually sent. Ollama now receives `num_ctx`. Summarizing dropped history is still open.
 
 ---
 
@@ -473,7 +475,7 @@ Notes:
 - [x] Create Registration page
 - [x] Implement auth store/context
 - [x] Add protected route wrapper
-- [ ] Implement token refresh logic (partial: tokens persisted and attached; background refresh deferred)
+- [x] Implement token refresh logic
 - [x] Create user menu (profile email + logout)
 
 Notes:
@@ -482,6 +484,7 @@ Notes:
 - 2026-01-15: Introduced a `ProtectedRoute` wrapper in `App.tsx` so the dashboard is only accessible when authenticated.
 - 2026-01-15: Updated `AppLayout` to show the current user's email and a Logout button instead of Login/Register when authenticated.
 - 2026-01-15: Full token refresh flow (`/api/v1/auth/refresh` on expiry) is deferred to a later enhancement; current implementation expects the backend tokens to remain valid during a normal session.
+- 2026-11-26: Token refresh on 401. `apiClient` refreshes and retries each request once, and concurrent failures share a single `/auth/refresh` call. A request sent with a token that's already been replaced retries without another refresh. Login, register and refresh are never retried. Streaming chat (`fetch`) gets the same handling. The auth store saves rotated tokens and logs out only if the refresh token is rejected, not on network errors. The handler is registered during render, so the first queries after a reload can refresh. Backend contract test in `test_auth.py`.
 
 ### P5-3: Knowledge Base Management UI
 - [x] Create Knowledge Base list page
@@ -552,6 +555,8 @@ Notes:
 Notes:
 - 2026-11-26: Added `backend/tests/test_e2e_pipeline.py`. Through the HTTP API, it covers upload (real MinIO) → parse/chunk → embed/index (real OpenSearch) → hybrid search → streamed chat. It runs the real Celery task code in-process via `.apply()`. Only the embedding model (deterministic hashed bag-of-words) and the LLM are faked. It checks KB isolation, that the retrieved text reaches the prompt, and that citations resolve to real chunks. It auto-skips when OpenSearch/MinIO are unreachable and deletes its OpenSearch indices and MinIO bucket afterwards.
 - 2026-11-26: The test found that `StorageService.upload_file` never wrote to MinIO: it returned an un-awaited coroutine, so every upload saved the DB row but no file, and parsing then failed with `NoSuchKey`. Fixed. The test also fails if the ISM 409 fix is reverted.
+- 2026-11-26: Deletion works in two phases. Deleting a document or KB marks it deleted, and search, chunk, document and chat endpoints ignore it immediately. A `purge_document` Celery task (`app/tasks/purge.py`, default queue, retries) then removes its OpenSearch entries, chunk rows and MinIO file, and keeps the Document row as a record. Deleting a KB marks all its documents deleted. Parsing and indexing check for deletion before and after writing, so a document deleted mid-pipeline isn't written back. Chats whose KBs are all deleted keep readable history, but new questions get a 400 and the UI shows a banner. Tests: `backend/tests/test_deletion.py` (real stack).
+- 2026-11-26: Fixed Celery workers registering no tasks: `autodiscover_tasks` looked for a non-existent `backend.app.tasks.tasks` module. Task modules are now listed in `celery_app.conf.include`.
 
 ### P6-3: Performance Testing
 - [ ] Create load test scripts (Locust/k6)

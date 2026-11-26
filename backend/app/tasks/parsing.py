@@ -198,15 +198,24 @@ def parse_document(self, document_id: str, tenant_id: str, parser_config: dict |
         Session2 = async_sessionmaker(eng2, expire_on_commit=False)
         try:
             async with Session2() as db:
+                # Row lock until commit: a concurrent delete waits for us, so its purge
+                # (queued after the delete commits) sees and removes these chunks.
+                res = await db.execute(
+                    sa.select(Document)
+                    .where(Document.id == doc_uuid, Document.tenant_id == tenant_uuid)
+                    .with_for_update()
+                )
+                doc2 = res.scalar_one_or_none()
+                if doc2 is None or doc2.deleted_at is not None:
+                    # Deleted while parsing: its purge may already have run, so writing
+                    # chunks now would leave orphans behind.
+                    return {"document_id": document_id, "tenant_id": tenant_id, "status": "deleted"}
+
                 # store chunks
                 svc = ChunkService()
                 await svc.store_chunks(db, tenant_id=tenant_uuid, document_id=doc_uuid, chunks=chunks_payload)
 
                 # update document
-                res = await db.execute(
-                    sa.select(Document).where(Document.id == doc_uuid, Document.tenant_id == tenant_uuid)
-                )
-                doc2 = res.scalar_one_or_none()
                 if doc2 is not None:
                     doc2.status = "done"
                     doc2.parse_progress = 1.0

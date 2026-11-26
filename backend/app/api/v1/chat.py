@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -18,12 +19,14 @@ from backend.app.core.deps import require_tenant_membership
 from backend.app.models.chat import ChatMessage, ChatSession
 from backend.app.models.knowledge_base import KnowledgeBase
 from backend.app.services.llm import LLMMessage, LLMService, LLMResult, default_llm_config, create_llm_service
+from backend.app.services.prompt_budget import build_prompt
 from backend.app.services.search import SearchHit, SearchService
 
 
 logger = logging.getLogger(__name__)
 
 _EMPTY_REPLY = "The model returned an empty response"
+KB_DELETED_DETAIL = "This chat's knowledge base has been deleted, so it can't answer new questions"
 
 router = APIRouter(prefix="/chat")
 
@@ -305,14 +308,6 @@ async def list_messages(
     )
 
 
-async def _build_context_from_hits(hits: list[SearchHit]) -> str:
-    lines: list[str] = []
-    for i, h in enumerate(hits, start=1):
-        # Keep context compact but still traceable.
-        lines.append(f"[{i}] doc_id={h.doc_id} score={h.score:.3f}\n{h.content}\n")
-    return "\n".join(lines)
-
-
 async def _load_history_messages(db: AsyncSession, session: ChatSession) -> list[ChatMessage]:
     res = await db.execute(
         select(ChatMessage)
@@ -370,13 +365,13 @@ async def _prepare_turn(
     await db.refresh(session)
     if not session.knowledge_bases:
         raise HTTPException(status_code=400, detail="Chat session has no knowledge bases configured")
+    live_kbs = [kb for kb in session.knowledge_bases if kb.deleted_at is None]
+    if not live_kbs:
+        # History stays readable; only new questions are refused.
+        raise HTTPException(status_code=400, detail=KB_DELETED_DETAIL)
 
-    # For now we support a single KB per session for retrieval; if multiple are configured,
-    # we use the first one. Multi-KB retrieval can be added later.
-    kb = session.knowledge_bases[0]
-
-    # Load prior turns before adding the new user message; it is appended explicitly
-    # below as the final user turn.
+    # Load prior turns before adding the new user message; it is passed separately as
+    # the current question.
     history = await _load_history_messages(db, session)
 
     user_msg = ChatMessage(
@@ -389,45 +384,41 @@ async def _prepare_turn(
     db.add(user_msg)
     await db.flush()
 
-    # Retrieve relevant chunks.
+    # Retrieve relevant chunks from all of the session's (live) knowledge bases, ranked together.
     search = SearchService()
     hits = await search.search(
         tenant_id=tenant_id,
-        kb_id=kb.id,
+        kb_ids=[kb.id for kb in live_kbs],
         query=req.content,
         top_k=req.top_k,
     )
-    context_text = await _build_context_from_hits(hits)
 
-    # Build LLM messages: system prompt + retrieved context + history + current user message.
-    # Context goes in a separate system message to keep it clearly delimited.
-    llm_messages: list[LLMMessage] = []
-    if session.system_prompt:
-        llm_messages.append(LLMMessage(role="system", content=session.system_prompt))
-    llm_messages.append(
-        LLMMessage(
-            role="system",
-            content=(
-                "You are a helpful assistant for the RagNex system. "
-                "Answer the user's question using ONLY the following retrieved context.\n\n"
-                f"Context:\n{context_text}"
-            ),
-        )
+    # Fit system prompt + context + history + question into the model's context window.
+    cfg = default_llm_config()
+    plan = build_prompt(
+        question=req.content,
+        hits=hits,
+        history=[(m.role, m.content) for m in history],
+        system_prompt=session.system_prompt,
+        context_window=cfg.context_window,
+        reserve_for_answer=cfg.max_tokens,
     )
-    for m in history:
-        # Empty messages can't be sent (LLMMessage requires content); older rows may
-        # contain one from before empty replies were rejected.
-        if m.role == "system" or not m.content.strip():
-            continue
-        role = m.role if m.role in {"user", "assistant"} else "user"
-        llm_messages.append(LLMMessage(role=role, content=m.content))
-    llm_messages.append(LLMMessage(role="user", content=req.content))
+    if plan.dropped_hits or plan.dropped_exchanges:
+        logger.info(
+            "Prompt trimmed to fit context window for chat session %s: dropped %d chunk(s), "
+            "%d earlier exchange(s); ~%d tokens",
+            session.id,
+            plan.dropped_hits,
+            plan.dropped_exchanges,
+            plan.estimated_tokens,
+        )
 
     return _PreparedTurn(
         session=session,
         user_msg=user_msg,
-        llm_messages=llm_messages,
-        citations=_build_citations_from_hits(hits),
+        llm_messages=plan.messages,
+        # Cite only what the model was actually shown.
+        citations=_build_citations_from_hits(plan.used_hits),
     )
 
 
@@ -467,6 +458,59 @@ def _sse(event: str, data: object) -> str:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
+# Answers being generated in the background. Holding a reference keeps the event loop
+# from garbage-collecting a task whose client has disconnected.
+_generation_tasks: set[asyncio.Task] = set()
+
+
+async def _generate_and_save(
+    llm: LLMService,
+    turn: _PreparedTurn,
+    tenant_id: uuid.UUID,
+    session_id: uuid.UUID,
+    events: asyncio.Queue,
+) -> None:
+    """Generate the answer and persist it, publishing SSE events to `events`.
+
+    Runs as its own task so the answer is completed and saved even if the client
+    disconnects mid-stream. Always ends by putting `None` on the queue.
+    """
+    try:
+        parts: list[str] = []
+        try:
+            async for fragment in llm.generate_stream(turn.llm_messages):
+                parts.append(fragment)
+                events.put_nowait(("delta", {"text": fragment}))
+        except Exception as exc:  # noqa: BLE001 - surface any provider failure to the client
+            logger.exception("LLM streaming failed for chat session %s", session_id)
+            events.put_nowait(("error", {"detail": f"Generation failed: {type(exc).__name__}"}))
+            return
+
+        content = "".join(parts)
+        if not content.strip():
+            events.put_nowait(("error", {"detail": _EMPTY_REPLY}))
+            return
+
+        SessionLocal = async_sessionmaker(get_engine(), expire_on_commit=False)
+        async with SessionLocal() as write_db:
+            assistant_msg = ChatMessage(
+                tenant_id=tenant_id,
+                session_id=session_id,
+                role="assistant",
+                content=content,
+                citations=turn.citations,
+            )
+            write_db.add(assistant_msg)
+            await write_db.commit()
+            await write_db.refresh(assistant_msg)
+        events.put_nowait(("done", _to_message_response(assistant_msg).model_dump(mode="json")))
+    except Exception:  # noqa: BLE001 - e.g. DB failure while saving
+        logger.exception("Saving the streamed answer failed for chat session %s", session_id)
+        events.put_nowait(("error", {"detail": "Failed to save the answer"}))
+    finally:
+        events.put_nowait(None)
+
+
 @router.post("/sessions/{session_id}/messages/stream")
 async def stream_message(
     session_id: uuid.UUID,
@@ -480,8 +524,11 @@ async def stream_message(
       - `meta`:  {"user_message": ChatMessage, "citations": [...]}
       - `delta`: {"text": "<fragment>"}  (repeated)
       - `done`:  ChatMessage (the persisted assistant message)
-    or `error`: {"detail": "..."} if generation fails part-way (nothing is persisted
-    for the assistant in that case; the user message is kept).
+    or `error`: {"detail": "..."} if generation fails or returns nothing (no assistant
+    message is saved then; the user message is kept, and is left out of later prompts).
+
+    Generation is not tied to the connection: if the client disconnects, the answer is
+    still completed and saved, and shows up in the session history.
 
     Validation errors (404/400) are returned as normal HTTP errors before streaming starts.
     """
@@ -489,43 +536,22 @@ async def stream_message(
     turn = await _prepare_turn(db, tenant_id, user.id, session_id, req)
 
     # Commit the user message now: the stream outlives this request-scoped work,
-    # and the reply is saved with its own DB session below.
+    # and the reply is saved with its own DB session.
     await db.commit()
     await db.refresh(turn.user_msg)
     user_payload = _to_message_response(turn.user_msg).model_dump(mode="json")
 
     llm: LLMService = _make_llm_service()
+    events: asyncio.Queue = asyncio.Queue()  # unbounded: the producer never waits on the client
+    task = asyncio.create_task(_generate_and_save(llm, turn, tenant_id, session_id, events))
+    _generation_tasks.add(task)
+    task.add_done_callback(_generation_tasks.discard)
 
     async def event_stream() -> AsyncIterator[str]:
+        # If the client disconnects, this generator is cancelled; the task is not.
         yield _sse("meta", {"user_message": user_payload, "citations": turn.citations})
-
-        parts: list[str] = []
-        try:
-            async for fragment in llm.generate_stream(turn.llm_messages):
-                parts.append(fragment)
-                yield _sse("delta", {"text": fragment})
-        except Exception as exc:  # noqa: BLE001 - surface any provider failure to the client
-            logger.exception("LLM streaming failed for chat session %s", session_id)
-            yield _sse("error", {"detail": f"Generation failed: {type(exc).__name__}"})
-            return
-
-        if not "".join(parts).strip():
-            yield _sse("error", {"detail": _EMPTY_REPLY})
-            return
-
-        SessionLocal = async_sessionmaker(get_engine(), expire_on_commit=False)
-        async with SessionLocal() as write_db:
-            assistant_msg = ChatMessage(
-                tenant_id=tenant_id,
-                session_id=session_id,
-                role="assistant",
-                content="".join(parts),
-                citations=turn.citations,
-            )
-            write_db.add(assistant_msg)
-            await write_db.commit()
-            await write_db.refresh(assistant_msg)
-        yield _sse("done", _to_message_response(assistant_msg).model_dump(mode="json"))
+        while (item := await events.get()) is not None:
+            yield _sse(*item)
 
     return StreamingResponse(
         event_stream(),

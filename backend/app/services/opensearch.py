@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 from opensearchpy import OpenSearch
-from opensearchpy.exceptions import ConflictError
+from opensearchpy.exceptions import ConflictError, NotFoundError
 
 from backend.app.core.config import settings
 
@@ -169,6 +169,33 @@ class OpenSearchService:
         }
         client.indices.create(index=backing, body=body)
         return alias
+
+    def delete_document_chunks(self, tenant_id: uuid.UUID, document_id: uuid.UUID) -> int:
+        """Remove every indexed chunk of a document. Returns the number deleted.
+
+        Idempotent: a tenant with no index yet, or a document with nothing indexed, is a no-op.
+        """
+        client = self._client()
+        body = {
+            "query": {
+                "bool": {
+                    "filter": [
+                        {"term": {"tenant_id": str(tenant_id)}},
+                        {"term": {"doc_id": str(document_id)}},
+                    ]
+                }
+            }
+        }
+        try:
+            resp = client.delete_by_query(
+                index=self.get_index_name(tenant_id),
+                body=body,
+                refresh=True,  # make the removal visible to the very next search
+                conflicts="proceed",
+            )
+        except NotFoundError:
+            return 0  # tenant has no index yet
+        return int(resp.get("deleted", 0))
 
     def health(self) -> dict:
         client = self._client()

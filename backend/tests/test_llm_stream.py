@@ -41,13 +41,15 @@ async def test_ollama_stream_parses_ndjson(monkeypatch):
     body = "\n".join(json.dumps(x) for x in lines) + "\n"
     captured = _install_transport(monkeypatch, lambda req: httpx.Response(200, text=body))
 
-    svc = OllamaLLM(LLMConfig(provider="ollama", model="m", base_url="http://ollama"))
+    svc = OllamaLLM(LLMConfig(provider="ollama", model="m", base_url="http://ollama", context_window=16384))
     assert await _collect(svc) == ["Hel", "lo"]
 
     sent = json.loads(captured[0].content)
     assert captured[0].url == "http://ollama/api/chat"
     assert sent["stream"] is True
     assert sent["messages"] == [{"role": "user", "content": "hi"}]
+    # Without num_ctx Ollama silently truncates prompts at its own default window.
+    assert sent["options"]["num_ctx"] == 16384
 
 
 @pytest.mark.asyncio

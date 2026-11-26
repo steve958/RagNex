@@ -1,4 +1,4 @@
-import { apiBaseUrl, apiClient, getAuthHeaders } from './apiClient';
+import { apiBaseUrl, apiClient, getAuthHeaders, getTokenAfter401 } from './apiClient';
 import { SseParser } from './sse';
 
 export interface ChatSession {
@@ -105,12 +105,22 @@ export const streamChatMessage = async (
   signal?: AbortSignal,
 ): Promise<ChatMessage> => {
   // axios can't expose a streamed body in the browser, so use fetch directly.
-  const res = await fetch(`${apiBaseUrl}/api/v1/chat/sessions/${sessionId}/messages/stream`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...getAuthHeaders() },
-    body: JSON.stringify(payload),
-    signal,
-  });
+  const send = (authHeaders: Record<string, string>) =>
+    fetch(`${apiBaseUrl}/api/v1/chat/sessions/${sessionId}/messages/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...authHeaders },
+      body: JSON.stringify(payload),
+      signal,
+    });
+
+  const firstHeaders = getAuthHeaders();
+  let res = await send(firstHeaders);
+  if (res.status === 401) {
+    // Expired access token: refresh (or pick up a refresh that already happened) and retry
+    // once. The 401 came before the message was saved, so retrying can't duplicate it.
+    const token = await getTokenAfter401(firstHeaders.Authorization);
+    if (token) res = await send({ ...getAuthHeaders(), Authorization: `Bearer ${token}` });
+  }
 
   if (!res.ok || !res.body) {
     let detail = `Request failed (${res.status})`;

@@ -41,6 +41,9 @@ class LLMConfig(BaseModel):
     base_url: str | None = None
     temperature: float = 0.7
     max_tokens: int = 2048
+    # Prompt + answer limit; callers trim prompts to fit. Sent to Ollama as num_ctx,
+    # which otherwise silently truncates at its own (smaller) default.
+    context_window: int = 8192
 
 
 @dataclass(frozen=True)
@@ -92,6 +95,7 @@ class OllamaLLM(LLMService):
                 "temperature": float(self.cfg.temperature),
                 # max_tokens is provider-specific; Ollama treats this as num_predict.
                 "num_predict": int(self.cfg.max_tokens),
+                "num_ctx": int(self.cfg.context_window),
             },
         }
         return f"{base_url}/api/chat", payload
@@ -237,4 +241,5 @@ def default_llm_config() -> LLMConfig:
         base_url=None,
         temperature=float(settings.llm_temperature),
         max_tokens=int(settings.llm_max_tokens),
+        context_window=int(settings.llm_context_window),
     )

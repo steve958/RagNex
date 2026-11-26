@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.app.core.config import settings
+from backend.app.core.db import get_engine
+from backend.app.models.document import Document
+from backend.app.models.knowledge_base import KnowledgeBase
 from backend.app.models.tenant import Tenant
 from backend.app.services.cache import CacheService
 from backend.app.services.embeddings import EmbeddingConfig, create_embedding_service
@@ -80,7 +84,7 @@ class SearchService:
         self,
         *,
         tenant_id: uuid.UUID,
-        kb_id: uuid.UUID,
+        kb_ids: Sequence[uuid.UUID],
         query: str,
         top_k: int = 10,
         bm25_k: int | None = None,
@@ -89,16 +93,24 @@ class SearchService:
         bm25_weight: float = 1.0,
         vector_weight: float = 1.0,
     ) -> list[SearchHit]:
+        """Hybrid search across one or more knowledge bases of a tenant.
+
+        All of a tenant's chunks live in one index, so several KBs are searched in a single
+        query and ranked together (not per KB and then merged).
+        """
+        if not kb_ids:
+            raise ValueError("kb_ids must not be empty")
         top_k = max(1, min(100, int(top_k)))
-        bm25_k = max(top_k, int(bm25_k or top_k))
-        vector_k = max(top_k, int(vector_k or top_k))
+        # Fetch extra candidates: hits from deleted documents are dropped after fusion.
+        bm25_k = max(top_k, int(bm25_k or top_k * 2))
+        vector_k = max(top_k, int(vector_k or top_k * 2))
 
         index = self._os.ensure_index(tenant_id)
         client = self._os._client()  # noqa: SLF001
 
         filters = [
             {"term": {"tenant_id": str(tenant_id)}},
-            {"term": {"kb_id": str(kb_id)}},
+            {"terms": {"kb_id": sorted({str(k) for k in kb_ids})}},
         ]
 
         bm25_body = {
@@ -169,4 +181,37 @@ class SearchService:
         ]
 
         fused.sort(key=lambda x: x.score, reverse=True)
+        fused = await self._drop_deleted(tenant_id, fused)
         return fused[:top_k]
+
+    async def _drop_deleted(self, tenant_id: uuid.UUID, hits: list[SearchHit]) -> list[SearchHit]:
+        """Remove hits whose document or knowledge base is deleted (or no longer exists).
+
+        Deletion purges index entries in the background; this makes a delete take effect
+        immediately and covers the time until (or a failure of) that purge.
+        """
+        if not hits:
+            return hits
+        doc_ids: set[uuid.UUID] = set()
+        for h in hits:
+            try:
+                doc_ids.add(uuid.UUID(h.doc_id))
+            except ValueError:
+                continue  # malformed entry: can't be a live document
+
+        live: set[str] = set()
+        if doc_ids:
+            Session = async_sessionmaker(get_engine(), expire_on_commit=False)
+            async with Session() as db:
+                res = await db.execute(
+                    sa.select(Document.id)
+                    .join(KnowledgeBase, KnowledgeBase.id == Document.kb_id)
+                    .where(
+                        Document.id.in_(doc_ids),
+                        Document.tenant_id == tenant_id,
+                        Document.deleted_at.is_(None),
+                        KnowledgeBase.deleted_at.is_(None),
+                    )
+                )
+                live = {str(i) for i in res.scalars().all()}
+        return [h for h in hits if h.doc_id in live]

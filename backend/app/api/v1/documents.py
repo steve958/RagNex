@@ -15,6 +15,7 @@ from backend.app.models.document import Document
 from backend.app.models.knowledge_base import KnowledgeBase
 from backend.app.services.storage import StorageService
 from backend.app.tasks.parsing import parse_document
+from backend.app.tasks.purge import enqueue_purges
 
 router = APIRouter()
 
@@ -236,10 +237,10 @@ async def delete_document(
     ctx=Depends(require_tenant_membership),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Soft-delete a document for the current tenant.
+    """Delete a document for the current tenant.
 
-    For now this marks the document as deleted via the SoftDeleteMixin; chunks and indexed
-    data remain and can be cleaned up by a separate maintenance job.
+    Marks it deleted (search and chunk endpoints ignore it from now on), then queues a
+    purge of its indexed chunks, chunk rows and stored file.
     """
     tenant_id, _user = ctx
 
@@ -258,4 +259,5 @@ async def delete_document(
 
     doc.deleted_at = _dt.datetime.now(tz=_dt.timezone.utc)
     await db.commit()
+    enqueue_purges(tenant_id, [doc.id])
     return {"ok": True}

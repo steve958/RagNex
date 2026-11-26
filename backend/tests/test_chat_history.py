@@ -131,7 +131,70 @@ async def test_session_with_stored_empty_message_still_works(monkeypatch):
         )
     assert r.status_code == 200, r.text
     sent = [(m.role, m.content) for m in prompts[0] if m.role != "system"]
-    assert sent == [("user", "earlier question"), ("user", "next question")]
+    # The earlier question was never really answered, so it is left out rather than
+    # sent as two user turns in a row.
+    assert sent == [("user", "next question")]
+
+
+@pytest.mark.asyncio
+async def test_prompt_keeps_answered_exchanges_and_skips_unanswered_questions(monkeypatch):
+    """A failed/interrupted turn leaves a question with no answer in history; the next
+    prompt must still alternate user/assistant and end with the new question."""
+    from backend.app.api.v1 import chat as chat_module
+
+    _patch_search(monkeypatch, chat_module)
+    prompts = _patch_generate(monkeypatch, chat_module, "ok")
+
+    transport = httpx.ASGITransport(app=create_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers, session_id = await _setup_session(client)
+        await _insert_messages(
+            session_id,
+            headers,
+            [("user", "q1"), ("assistant", "a1"), ("user", "q2 (generation failed)"), ("user", "q3"), ("assistant", "a3")],
+        )
+        r = await client.post(
+            f"/api/v1/chat/sessions/{session_id}/messages", json={"content": "q4"}, headers=headers
+        )
+    assert r.status_code == 200, r.text
+    sent = [(m.role, m.content) for m in prompts[0] if m.role != "system"]
+    assert sent == [("user", "q1"), ("assistant", "a1"), ("user", "q3"), ("assistant", "a3"), ("user", "q4")]
+
+
+@pytest.mark.asyncio
+async def test_long_history_is_trimmed_to_context_window(monkeypatch):
+    """With a small window, only the newest exchanges that fit are sent, plus the question."""
+    from backend.app.api.v1 import chat as chat_module
+    from backend.app.services import llm as llm_module
+
+    monkeypatch.setattr(llm_module.settings, "llm_context_window", 1200)
+    monkeypatch.setattr(llm_module.settings, "llm_max_tokens", 200)
+    _patch_search(monkeypatch, chat_module)
+    prompts = _patch_generate(monkeypatch, chat_module, "ok")
+
+    filler = " ".join(["word"] * 60)  # ~60+ tokens per message
+    rows = []
+    for i in range(30):
+        rows += [("user", f"q{i} {filler}"), ("assistant", f"a{i} {filler}")]
+
+    transport = httpx.ASGITransport(app=create_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers, session_id = await _setup_session(client)
+        await _insert_messages(session_id, headers, rows)
+        r = await client.post(
+            f"/api/v1/chat/sessions/{session_id}/messages", json={"content": "latest question"}, headers=headers
+        )
+    assert r.status_code == 200, r.text
+
+    sent = [(m.role, m.content.split()[0]) for m in prompts[0] if m.role != "system"]
+    assert sent[-1] == ("user", "latest")
+    kept = sent[:-1]
+    assert 0 < len(kept) < 60, "history should be trimmed, but not dropped entirely"
+    # Kept history is the newest, contiguous, complete exchanges.
+    n = len(kept) // 2
+    assert kept == [x for i in range(30 - n, 30) for x in (("user", f"q{i}"), ("assistant", f"a{i}"))]
+    # The retrieved context is still there.
+    assert any("context chunk one" in m.content for m in prompts[0] if m.role == "system")
 
 
 @pytest.mark.asyncio

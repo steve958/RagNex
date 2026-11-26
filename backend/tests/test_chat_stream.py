@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 
@@ -70,12 +71,12 @@ async def _messages_in_db(session_id: uuid.UUID) -> list[tuple[str, str]]:
 
 
 def _patch_search(monkeypatch, chat_module) -> None:
-    async def fake_search(self, *, tenant_id, kb_id, query, top_k=10, **_kwargs):
+    async def fake_search(self, *, tenant_id, kb_ids, query, top_k=10, **_kwargs):
         return [
             SearchHit(
                 chunk_id="c1",
                 doc_id="d1",
-                kb_id=str(kb_id),
+                kb_id=str(kb_ids[0]),
                 tenant_id=str(tenant_id),
                 content="context chunk one",
                 score=1.0,
@@ -197,3 +198,82 @@ async def test_stream_message_unknown_session_is_404(monkeypatch):
         )
     assert r.status_code == 404
     assert r.json()["detail"] == "Chat session not found"
+
+
+async def _stream_and_disconnect_after_first_event(app, path: str, headers: dict, payload: dict) -> list[bytes]:
+    """Drive the ASGI app directly and send http.disconnect once the first SSE event
+    has been written, like a browser tab closing mid-answer. Returns body chunks seen."""
+    body = json.dumps(payload).encode()
+    request_sent = False
+    disconnect = asyncio.Event()
+    chunks: list[bytes] = []
+
+    async def receive():
+        nonlocal request_sent
+        if not request_sent:
+            request_sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        await disconnect.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        if message["type"] == "http.response.body" and message.get("body"):
+            chunks.append(message["body"])
+            disconnect.set()
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(k.lower().encode(), v.encode()) for k, v in {**headers, "Content-Type": "application/json"}.items()],
+        "client": ("127.0.0.1", 12345),
+        "server": ("test", 80),
+    }
+    await asyncio.wait_for(app(scope, receive, send), timeout=10)
+    return chunks
+
+
+@pytest.mark.asyncio
+async def test_answer_is_saved_even_if_client_disconnects_mid_stream(monkeypatch):
+    from backend.app.api.v1 import chat as chat_module
+
+    _patch_search(monkeypatch, chat_module)
+    release = asyncio.Event()
+
+    class SlowLLM(chat_module.LLMService):
+        async def generate(self, messages):
+            raise AssertionError("not used")
+
+        async def generate_stream(self, messages):
+            yield "First half, "
+            await release.wait()  # the client is gone by the time we continue
+            yield "second half."
+
+    monkeypatch.setattr(chat_module, "_make_llm_service", lambda: SlowLLM(chat_module.default_llm_config()))
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers, session_id = await _setup_session(client)
+
+    chunks = await _stream_and_disconnect_after_first_event(
+        app, f"/api/v1/chat/sessions/{session_id}/messages/stream", headers, {"content": "Tell me"}
+    )
+    received = b"".join(chunks).decode()
+    assert "event: meta" in received and "second half" not in received
+
+    # The request is over; generation must still be running, then finish and save.
+    assert chat_module._generation_tasks, "generation should outlive the disconnected request"
+    release.set()
+    await asyncio.wait_for(asyncio.gather(*chat_module._generation_tasks), timeout=10)
+
+    assert await _messages_in_db(session_id) == [
+        ("user", "Tell me"),
+        ("assistant", "First half, second half."),
+    ]
