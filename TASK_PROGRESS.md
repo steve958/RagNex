@@ -550,7 +550,16 @@ Notes:
 - [ ] Backend unit tests (target: 80% coverage)
 - [x] Frontend unit tests
   - 2026-11-26: Tooling upgraded: vite 5→8, vitest 1→5, @vitejs/plugin-react 4→6, jsdom 24→29, Testing Library react 14→16 and jest-dom 6→8. react-router-dom 6→7.18 fixes a runtime vulnerability. `npm audit`: 0 vulnerabilities (was 7). React 18, Tailwind 3 and TypeScript 5 are unchanged; each of those upgrades is its own migration. The Windows lowercase-drive-letter bug ("failed to find the runner") persists in vitest 5. `npm test` now runs it through `frontend/scripts/vitest.mjs`, which starts Vitest from the canonical path.
-- [ ] DeepDoc parser tests
+- [x] DeepDoc parser tests
+  - 2026-11-26: `backend/tests/test_parsing_formats.py` runs every supported format through the worker's parse and chunk path. Sample files are built in code (`tests/format_samples.py`), and DOCX, XLSX, CSV and PPTX are also tested end to end (upload → worker → index → search). The tests found:
+    - DOCX and XLSX were called with the wrong signature and failed every time;
+    - CSV and `.doc` were accepted at upload but had no parser;
+    - PPTX had a parser but no route and was refused at upload;
+    - TXT glued words across lines and dropped punctuation (an upstream RAGFlow behaviour meant for Chinese);
+    - spreadsheet rows used a full-width "：";
+    - files with no extension and empty files were accepted and failed later.
+
+    All fixed. `services/parsing.py` `SUPPORTED_EXTENSIONS` is now the single list used by both upload checks and mirrored by the upload picker; a test keeps them in step. Legacy `.doc`, `.ppt` and `.xls` are refused at upload with the supported list. PDF is tested on a text PDF only (OCR for scanned PDFs needs the vision stack, which isn't in the image).
 - [ ] Run coverage reports in CI
 
 ### P6-2: Integration Tests

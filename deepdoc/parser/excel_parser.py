@@ -189,7 +189,9 @@ class RAGFlowExcelParser:
                     if not c.value:
                         continue
                     t = str(ti[i].value) if i < len(ti) else ""
-                    t += ("：" if t else "") + str(c.value)
+                    # RagNex: ASCII ": " instead of upstream's full-width "：", which reads
+                    # oddly in non-CJK chunk text and model context.
+                    t += (": " if t else "") + str(c.value)
                     fields.append(t)
                 line = "; ".join(fields)
                 if sheetname.lower().find("sheet") < 0:
