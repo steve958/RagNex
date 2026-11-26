@@ -45,22 +45,111 @@ async def test_create_tenant_calls_ensure_index(monkeypatch):
         assert called["n"] == 1
 
 
-def test_ensure_chunks_policy_tolerates_existing_policy(monkeypatch):
-    """Regression: ISM policy PUT returns 409 once the policy exists; that must not fail
-    search/indexing (which call this on every request)."""
+class _FakeISM:
+    """Records ISM requests; GET returns `stored` (None = the policy doesn't exist)."""
+
+    def __init__(self, stored=None, put_error=None):
+        self.stored = stored
+        self.put_error = put_error
+        self.calls = []
+
+    def perform_request(self, method, url, params=None, body=None):
+        from opensearchpy.exceptions import NotFoundError
+
+        self.calls.append((method, url, params, body))
+        if method == "GET":
+            if self.stored is None:
+                raise NotFoundError(404, "resource_not_found_exception", {})
+            return self.stored
+        if method == "PUT" and self.put_error:
+            raise self.put_error
+        return {}
+
+
+@pytest.fixture
+def ism(monkeypatch):
+    def install(**kwargs):
+        fake = _FakeISM(**kwargs)
+
+        class FakeClient:
+            transport = fake
+
+        monkeypatch.setattr(OpenSearchService, "_client", lambda self: FakeClient())
+        monkeypatch.setattr(OpenSearchService, "_policy_verified", False)
+        return fake
+
+    return install
+
+
+def _stored(policy_body, seq_no=7, primary_term=1):
+    return {"_id": "ragnex-chunks-policy", "_seq_no": seq_no, "_primary_term": primary_term, **policy_body}
+
+
+def test_chunks_policy_never_deletes_indices():
+    """Chunk indices hold whole knowledge bases. A delete state (the old policy deleted every
+    index 90 days after creation) drops documents from search while they still show as ready."""
+    policy = OpenSearchService()._policy_body()["policy"]
+    actions = [a for state in policy["states"] for a in state["actions"]]
+    assert not any("delete" in a for a in actions)
+    assert all(state["transitions"] == [] for state in policy["states"])
+    # Size-based rollover only: a weekly rollover adds a shard per tenant per week until the
+    # cluster's shard limit (1000 per node by default) stops all indexing.
+    assert actions == [{"rollover": {"min_size": "30gb"}}]
+
+
+def test_ensure_chunks_policy_creates_missing_policy(ism):
+    fake = ism(stored=None)
+    OpenSearchService().ensure_chunks_policy()
+    assert [(m, u) for m, u, _, _ in fake.calls] == [
+        ("GET", "/_plugins/_ism/policies/ragnex-chunks-policy"),
+        ("PUT", "/_plugins/_ism/policies/ragnex-chunks-policy"),
+    ]
+
+
+def test_ensure_chunks_policy_tolerates_concurrent_creation(ism):
+    """Regression: ISM PUT answers 409 if another process created the policy first; that must
+    not fail search/indexing."""
     from opensearchpy.exceptions import ConflictError
 
-    calls = []
-
-    class FakeTransport:
-        def perform_request(self, method, url, body=None):
-            calls.append((method, url))
-            raise ConflictError(409, "version_conflict_engine_exception", {})
-
-    class FakeClient:
-        transport = FakeTransport()
-
-    monkeypatch.setattr(OpenSearchService, "_client", lambda self: FakeClient())
-
+    ism(stored=None, put_error=ConflictError(409, "version_conflict_engine_exception", {}))
     OpenSearchService().ensure_chunks_policy()  # must not raise
-    assert calls == [("PUT", "/_plugins/_ism/policies/ragnex-chunks-policy")]
+
+
+def test_ensure_chunks_policy_leaves_current_policy_alone_and_checks_once(ism):
+    fake = ism(stored=_stored(OpenSearchService()._policy_body()))
+    OpenSearchService().ensure_chunks_policy()
+    OpenSearchService().ensure_chunks_policy()
+    assert [(m, u) for m, u, _, _ in fake.calls] == [("GET", "/_plugins/_ism/policies/ragnex-chunks-policy")]
+
+
+def test_ensure_chunks_policy_replaces_old_deleting_policy(ism):
+    old = {
+        "policy": {
+            "description": "RagNex chunk index lifecycle",
+            "default_state": "hot",
+            "states": [
+                {"name": "hot", "actions": [{"rollover": {"min_size": "5gb", "min_index_age": "7d"}}],
+                 "transitions": [{"state_name": "delete", "conditions": {"min_index_age": "90d"}}]},
+                {"name": "delete", "actions": [{"delete": {}}], "transitions": []},
+            ],
+        }
+    }
+    fake = ism(stored=_stored(old, seq_no=12, primary_term=3))
+    OpenSearchService().ensure_chunks_policy()
+
+    _, url, params, body = fake.calls[1]
+    assert (fake.calls[1][0], url) == ("PUT", "/_plugins/_ism/policies/ragnex-chunks-policy")
+    assert params == {"if_seq_no": 12, "if_primary_term": 3}  # ISM rejects updates without them
+    assert body == OpenSearchService()._policy_body()
+    # Existing indices keep the policy version they started with until re-attached.
+    assert [(m, u, b) for m, u, _, b in fake.calls[2:]] == [
+        ("POST", "/_plugins/_ism/remove/chunks_*", None),
+        ("POST", "/_plugins/_ism/add/chunks_*_v*", {"policy_id": "ragnex-chunks-policy"}),
+    ]
+
+
+def test_ensure_chunks_policy_applies_a_changed_rollover_size(ism, monkeypatch):
+    fake = ism(stored=_stored(OpenSearchService()._policy_body()))
+    monkeypatch.setattr("backend.app.services.opensearch.settings.opensearch_chunks_rollover_min_size", "50gb")
+    OpenSearchService().ensure_chunks_policy()
+    assert fake.calls[1][3]["policy"]["states"][0]["actions"] == [{"rollover": {"min_size": "50gb"}}]

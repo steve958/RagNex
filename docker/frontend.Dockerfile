@@ -10,6 +10,8 @@
 #   RAGNEX_API_UPSTREAM   backend host:port            (default api:8000)
 #   RAGNEX_MAX_UPLOAD_MB  largest accepted upload, MB  (default 100; keep in line with
 #                         the backend's MAX_UPLOAD_SIZE_MB)
+#   RAGNEX_TRUSTED_PROXY  address/CIDR of a reverse proxy in front of this container
+#                         whose X-Forwarded-For is trusted (default 127.0.0.1/32 = none)
 
 FROM node:22-alpine AS build
 WORKDIR /src
@@ -23,7 +25,7 @@ RUN npm run build
 
 FROM nginx:1.27-alpine
 ENV RAGNEX_API_UPSTREAM=api:8000 \
-    RAGNEX_MAX_UPLOAD_MB=100
+    RAGNEX_MAX_UPLOAD_MB=100     RAGNEX_TRUSTED_PROXY=127.0.0.1/32
 # Rendered with envsubst at container start by the official image's entrypoint.
 COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /src/dist /usr/share/nginx/html

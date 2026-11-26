@@ -50,7 +50,7 @@ Notes:
   - [x] `scripts/setup-dev.sh` (Linux/Mac)
 - [x] Create `.env.example` with all required variables
 - [x] Document environment variable descriptions
-  - [x] `docs/environment.md`
+  - [x] `docs/environment.md` (now `docs/configuration.md`)
 - [x] Set up Python virtual environment (repo root: `.venv`, Python 3.13)
   - [x] Create `backend/pyproject.toml` dependencies manifest
 - [x] Create frontend `package.json` with dependencies
@@ -323,7 +323,7 @@ Notes:
 ### P3-1: Elasticsearch Index Setup
 - [x] Create index template
 - [x] Implement index-per-tenant strategy
-- [ ] Create index lifecycle management (deferred)
+- [x] Create index lifecycle management
 - [x] Add index health monitoring
 - [ ] Implement index migration utilities (deferred)
 
@@ -331,6 +331,7 @@ Notes:
 - 2025-12-18: Added OpenSearch service `backend/app/services/opensearch.py` (composable template + index-per-tenant naming `chunks_<tenant_uuidhex>`).
 - 2025-12-18: Wired tenant creation to ensure the tenant index exists (best-effort).
 - 2025-12-18: Added unit tests `backend/tests/test_opensearch.py`; verified backend test suite passes: `28 passed, 2 skipped`.
+- 2026-11-26: Fixed the chunk index lifecycle policy. It rolled indices over every 7 days and deleted each one 90 days after creation: documents would drop out of search while still showing as ready, and weekly rollovers add a shard per tenant per week until the cluster's shard limit stops indexing. Now: rollover by size only (`OPENSEARCH_CHUNKS_ROLLOVER_MIN_SIZE`, default 30gb), no delete. Clusters with the old policy are updated at startup and existing indices re-attached (verified on the dev cluster).
 
 ### P3-2: Embedding Service Integration
 - [x] Create embedding service abstraction
@@ -659,9 +660,15 @@ Notes:
 - [ ] Add horizontal pod autoscaling
 
 ### P7-3: Configuration & Environment Documentation
-- [ ] Document all environment variables
-- [ ] Document secrets management
-- [ ] Create deployment checklist
+- [x] Document all environment variables
+- [x] Document secrets management
+- [x] Create deployment checklist
+
+Notes:
+- 2026-11-26: `docs/configuration.md` (every setting, checked against the code) and `docs/deployment.md` (secrets, rotation, TLS proxy, backups, go-live checklist). Replaces `docs/environment.md`.
+- Fixed while documenting: `.env.example` used `MAX_UPLOAD_MB` and `S3_BUCKET`, neither of which is read (the setting is `MAX_UPLOAD_SIZE_MB`; buckets are per tenant); removed the unused `API_KEY_HEADER` and the `TENANT_HEADER` setting (changing it broke the web app); `OPENSEARCH_VERIFY_CERTS` now defaults to on; an `https://` S3 endpoint now uses TLS without also setting `S3_SECURE`; prod compose passes through `LOG_LEVEL`, `LLM_TEMPERATURE`, token lifetimes and embedding tuning.
+- Security fix: behind nginx, clients could pick their own IP with `X-Forwarded-For` (nginx appended to it, and the API trusted the first entry), bypassing per-IP login rate limits. nginx now replaces the header with the client IP, trusting a client-supplied value only from `RAGNEX_TRUSTED_PROXY`. Verified against the nginx image.
+- Open: sign-up is open to anyone who can reach the site; there is no setting to close it. Rate limits are per API process (in-memory), not shared.
 
 ### P7-4: User Documentation
 - [ ] Create getting started guide

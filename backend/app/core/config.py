@@ -17,13 +17,13 @@ class Settings(BaseSettings):
     opensearch_url: str = "http://localhost:9200"
     opensearch_username: str | None = None
     opensearch_password: str | None = None
-    opensearch_verify_certs: bool = False
+    # Only matters for https:// URLs. On by default: off would accept any certificate.
+    opensearch_verify_certs: bool = True
 
-    # OpenSearch index lifecycle (ISM) for chunk indices (P3-1 deferred)
+    # Chunk index lifecycle (OpenSearch ISM). A tenant's chunk index rolls over to a new
+    # backing index once it reaches this size; indices are never deleted automatically.
     opensearch_chunks_policy_id: str = "ragnex-chunks-policy"
-    opensearch_chunks_rollover_min_size: str = "5gb"
-    opensearch_chunks_rollover_min_age: str = "7d"
-    opensearch_chunks_delete_min_age: str = "90d"
+    opensearch_chunks_rollover_min_size: str = "30gb"
 
     # Celery
     celery_task_always_eager: bool = False
@@ -35,12 +35,6 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expires_minutes: int = 30
     refresh_token_expires_days: int = 14
-
-    # API key auth
-    api_key_header: str = "X-API-Key"
-
-    # Tenant context
-    tenant_header: str = "X-Tenant-ID"
 
     # Browser origins allowed to call the API cross-origin (JSON list in env, e.g.
     # CORS_ORIGINS='["https://app.example.com"]'). Not needed when the frontend is served

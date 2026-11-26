@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.api_keys import hash_api_key
-from backend.app.core.config import settings
+from backend.app.core.tenant import TENANT_HEADER
 from backend.app.core.db import get_db
 from backend.app.core.security import TokenService
 from backend.app.models.api_key import APIKey
@@ -93,9 +93,9 @@ async def _check_tenant_access(
 ) -> tuple[uuid.UUID, User]:
     tenant_id: uuid.UUID | None = getattr(request.state, "tenant_id", None)
     if tenant_id is None:
-        if request.headers.get(settings.tenant_header):
-            raise HTTPException(status_code=400, detail=f"Invalid {settings.tenant_header} header (expected a UUID)")
-        raise HTTPException(status_code=400, detail=f"Missing {settings.tenant_header} header")
+        if request.headers.get(TENANT_HEADER):
+            raise HTTPException(status_code=400, detail=f"Invalid {TENANT_HEADER} header (expected a UUID)")
+        raise HTTPException(status_code=400, detail=f"Missing {TENANT_HEADER} header")
 
     key: APIKey | None = getattr(request.state, "api_key", None)
     if key is not None:

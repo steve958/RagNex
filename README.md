@@ -5,7 +5,7 @@ RagNex is a self-hosted, multi-tenant Retrieval-Augmented Generation (RAG) platf
 This repository currently tracks the implementation plan and progress for building:
 - DeepDoc-based document parsing and OCR
 - Template-based chunking (General / Laws / Paper)
-- Hybrid retrieval (BM25 + vector search) using Elasticsearch or OpenSearch
+- Hybrid retrieval (BM25 + vector search) using OpenSearch
 - Chat with streaming responses and citation-backed answers
 - A lightweight web UI for knowledge bases, documents, and chat
 
@@ -29,7 +29,7 @@ The following are explicitly out of scope for this project:
 - **Metadata DB**: PostgreSQL
 - **Object storage**: MinIO (S3-compatible)
 - **Queue / cache**: Redis
-- **Search**: Elasticsearch or OpenSearch
+- **Search**: OpenSearch
 - **Embeddings**: Local by default (e.g., Ollama / vLLM), optional OpenAI
 - **LLM**: Local or cloud (configurable per tenant)
 - **Frontend**: React (TypeScript)
@@ -87,10 +87,9 @@ Open http://localhost:8080 (or `RAGNEX_HTTP_PORT`). This starts:
 Images: `docker/backend.Dockerfile` (API, worker and migrations share one image; the
 command picks the role: `api`, `worker` or `migrate`) and `docker/frontend.Dockerfile`.
 
-Before exposing it beyond your machine:
-- put TLS in front of the `frontend` port (a reverse proxy or load balancer);
-- set `LLM_CONTEXT_WINDOW` to your chat model's real context size;
-- keep `EMBEDDING_DIMENSION` matching the embedding model (changing it later requires reindexing).
+Before exposing it beyond your machine, follow [docs/deployment.md](docs/deployment.md): TLS,
+secrets and their rotation, backups, and a go-live checklist. Every setting is described in
+[docs/configuration.md](docs/configuration.md).
 
 Upgrading: `docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build`
 rebuilds the images and re-runs migrations before the API starts.
@@ -102,7 +101,7 @@ Requirements: Python 3.13, Node 22, Docker.
 ```bash
 # Data stores (Postgres, Redis, OpenSearch, MinIO) with published ports
 docker compose -f docker-compose.dev.yml up -d
-cp .env.example .env
+cp .env.example .env          # then set JWT_SECRET; all settings: docs/configuration.md
 
 # Backend: installs dependencies only; code is imported as `backend.app.*` from the repo root
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\Activate.ps1
