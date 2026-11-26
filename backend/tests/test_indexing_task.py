@@ -39,7 +39,7 @@ async def test_indexing_task_indexes_chunks_and_updates_document(monkeypatch):
 
     captured = {"actions": None}
 
-    def fake_bulk(client, actions, raise_on_error=False, raise_on_exception=False):
+    def fake_bulk(client, actions, raise_on_error=False, raise_on_exception=False, **_kwargs):
         captured["actions"] = list(actions)
         return (len(captured["actions"]), [])
 

@@ -4,13 +4,15 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.db import get_db
 from backend.app.core.deps import require_tenant_membership
+from backend.app.models.document import Document
 from backend.app.models.knowledge_base import KnowledgeBase
 from backend.app.services.search import SearchHit, SearchService
+from backend.app.tasks.purge import enqueue_purges
 
 router = APIRouter(prefix="/knowledgebases")
 
@@ -148,12 +150,22 @@ async def delete_knowledge_base(
     if kb is None:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
 
-    # Soft delete for now by setting deleted_at via SQLAlchemy mixin.
+    # Mark the KB and all its documents deleted in one transaction (search ignores them
+    # immediately), then purge the documents' data in the background.
     import datetime as _dt
 
-    kb.deleted_at = _dt.datetime.now(tz=_dt.timezone.utc)
+    now = _dt.datetime.now(tz=_dt.timezone.utc)
+    kb.deleted_at = now
+    res = await db.execute(
+        update(Document)
+        .where(Document.kb_id == kb_id, Document.tenant_id == tenant_id, Document.deleted_at.is_(None))
+        .values(deleted_at=now)
+        .returning(Document.id)
+    )
+    doc_ids = list(res.scalars().all())
     await db.commit()
-    return {"ok": True}
+    enqueue_purges(tenant_id, doc_ids)
+    return {"ok": True, "documents_deleted": len(doc_ids)}
 
 
 class SearchRequest(BaseModel):
@@ -190,7 +202,11 @@ async def search_knowledge_base(
 
     kb = (
         await db.execute(
-            select(KnowledgeBase).where(KnowledgeBase.id == kb_id, KnowledgeBase.tenant_id == tenant_id)
+            select(KnowledgeBase).where(
+                KnowledgeBase.id == kb_id,
+                KnowledgeBase.tenant_id == tenant_id,
+                KnowledgeBase.deleted_at.is_(None),
+            )
         )
     ).scalar_one_or_none()
 

@@ -57,6 +57,14 @@ export const ChatPage: React.FC = () => {
     [sessions, selectedSessionId],
   );
 
+  // kbList only contains live knowledge bases; if none of the session's are left, the
+  // server refuses new questions, so say so up front instead of failing on send.
+  const kbDeleted =
+    !!activeSession &&
+    !!kbList &&
+    activeSession.kb_ids.length > 0 &&
+    activeSession.kb_ids.every((id) => !kbList.some((kb) => kb.id === id));
+
   const { data: historyData, isLoading: historyLoading } = useQuery({
     queryKey: ['chat-history', selectedSessionId],
     // Newest page (the server caps limit at 100), so new messages never fall off the end.
@@ -107,7 +115,7 @@ export const ChatPage: React.FC = () => {
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeSession || !input.trim() || isSending) return;
+    if (!activeSession || !input.trim() || isSending || kbDeleted) return;
     const sessionId = activeSession.id;
     const content = input.trim();
     const controller = new AbortController();
@@ -329,6 +337,12 @@ export const ChatPage: React.FC = () => {
               )}
               <div ref={messagesEndRef} />
             </div>
+            {kbDeleted && (
+              <p role="status" className="border-t border-amber-900/60 bg-amber-950/40 px-4 py-2 text-[12px] text-amber-200">
+                This chat's knowledge base has been deleted. You can still read the conversation, but it can't
+                answer new questions. Start a new chat to continue.
+              </p>
+            )}
             <form onSubmit={handleSend} className="border-t border-slate-800 px-4 py-3">
               <div className="flex items-end gap-2">
                 <textarea
@@ -340,12 +354,13 @@ export const ChatPage: React.FC = () => {
                     }
                   }}
                   placeholder="Ask a question about your documents… (Ctrl+Enter to send)"
+                  disabled={kbDeleted}
                   rows={2}
                   className="flex-1 resize-none rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
                 />
                 <button
                   type="submit"
-                  disabled={!activeSession || !input.trim() || isSending}
+                  disabled={!activeSession || !input.trim() || isSending || kbDeleted}
                   className="h-9 rounded bg-sky-600 px-3 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-60"
                 >
                   {isSending ? 'Sending…' : 'Send'}

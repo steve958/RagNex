@@ -64,6 +64,11 @@ async def test_search_service_hybrid_rrf(monkeypatch):
 
     monkeypatch.setattr("backend.app.services.search.OpenSearchService.ensure_index", lambda self, tid: "chunks_test")
     monkeypatch.setattr("backend.app.services.search.OpenSearchService._client", lambda self: _FakeClient())
+    # Fake doc ids ("d1") are not in Postgres; deletion filtering is tested separately.
+    async def keep_all(self, tenant_id, hits):
+        return hits
+
+    monkeypatch.setattr("backend.app.services.search.SearchService._drop_deleted", keep_all)
 
     hits = await svc.search(tenant_id=tenant_id, kb_id=kb_id, query="q", top_k=3, rrf_k=1)
 

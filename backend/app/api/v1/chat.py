@@ -26,6 +26,7 @@ from backend.app.services.search import SearchHit, SearchService
 logger = logging.getLogger(__name__)
 
 _EMPTY_REPLY = "The model returned an empty response"
+KB_DELETED_DETAIL = "This chat's knowledge base has been deleted, so it can't answer new questions"
 
 router = APIRouter(prefix="/chat")
 
@@ -364,10 +365,14 @@ async def _prepare_turn(
     await db.refresh(session)
     if not session.knowledge_bases:
         raise HTTPException(status_code=400, detail="Chat session has no knowledge bases configured")
+    live_kbs = [kb for kb in session.knowledge_bases if kb.deleted_at is None]
+    if not live_kbs:
+        # History stays readable; only new questions are refused.
+        raise HTTPException(status_code=400, detail=KB_DELETED_DETAIL)
 
     # For now we support a single KB per session for retrieval; if multiple are configured,
     # we use the first one. Multi-KB retrieval can be added later.
-    kb = session.knowledge_bases[0]
+    kb = live_kbs[0]
 
     # Load prior turns before adding the new user message; it is passed separately as
     # the current question.

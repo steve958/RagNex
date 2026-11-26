@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.models.document import Chunk
+from backend.app.models.document import Chunk, Document
 
 
 @dataclass(frozen=True)
@@ -90,5 +90,10 @@ class ChunkService:
         return ChunkPage(items=items, total=int(total), page=page, size=size)
 
     async def get_chunk(self, db: AsyncSession, *, tenant_id: uuid.UUID, chunk_id: uuid.UUID) -> Chunk | None:
-        res = await db.execute(select(Chunk).where(Chunk.id == chunk_id, Chunk.tenant_id == tenant_id))
+        """A chunk of a live document; None if the document is deleted (purge pending)."""
+        res = await db.execute(
+            select(Chunk)
+            .join(Document, Document.id == Chunk.document_id)
+            .where(Chunk.id == chunk_id, Chunk.tenant_id == tenant_id, Document.deleted_at.is_(None))
+        )
         return res.scalar_one_or_none()
