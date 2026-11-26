@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     vllm_base_url: str | None = None
 
+    # Base URLs tenant owners may point their LLM/embedding settings at (exact match after
+    # trimming a trailing "/"). Empty = tenants can't set a custom base URL and always use
+    # the server's endpoints. Letting tenants pick arbitrary URLs would let them make the
+    # server send requests to internal addresses (SSRF), so only list trusted endpoints.
+    tenant_model_base_urls: list[str] = []
+
     # LLM defaults (P4-1)
     llm_provider: str = "ollama"  # ollama|openai|vllm (others can be added later)
     llm_model: str = "llama3"

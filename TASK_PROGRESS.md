@@ -395,10 +395,16 @@ Notes:
 - [x] OpenAI
 - [ ] Anthropic
 - [ ] DeepSeek
-- [ ] Create LLM configuration per tenant
-- [ ] Add token counting and limit enforcement
+- [x] Create LLM configuration per tenant (and per-tenant embedding settings)
+- [x] Add token counting and limit enforcement (prompt budget; see P4-4)
 
 Notes:
+- 2026-11-26: Per-tenant model settings. `GET/PUT /api/v1/tenants/{id}/model-settings`: members read, owners change. Migration `0005` adds `tenants.llm_config`; embeddings use the existing `embedding_config`. Chat resolves the tenant's effective LLM config each turn, for both the client and the prompt budget. Rules are in `services/model_settings.py`:
+  - a tenant `base_url` must be on the `TENANT_MODEL_BASE_URLS` allowlist (empty by default) to prevent SSRF;
+  - API keys are write-only, and switching to OpenAI away from the server default requires the tenant's own key, so the operator's key isn't used;
+  - a new embedding model is test-called and must match `EMBEDDING_DIMENSION`, and it can't change while the tenant has indexed documents.
+  
+  The Settings page's LLM and Embeddings tabs are wired up (read-only for members). API keys are stored unencrypted in Postgres; encrypting them needs a key-management decision.
 - 2026-01-15: Added `backend/app/services/llm.py` with `LLMService` abstraction, `OllamaLLM` and `OpenAICompatibleLLM`, plus `LLMConfig`/`LLMMessage`/`LLMResult` and a `create_llm_service` factory.
 - 2026-01-15: Introduced LLM defaults in `backend/app/core/config.py` (`llm_provider`, `llm_model`, `llm_temperature`, `llm_max_tokens`) and a `default_llm_config()` helper.
 - 2026-01-15: LiteLLM integration and per-tenant LLM configuration remain TODOs for a follow-up task.

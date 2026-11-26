@@ -18,7 +18,8 @@ from backend.app.core.db import get_db, get_engine
 from backend.app.core.deps import require_tenant_membership
 from backend.app.models.chat import ChatMessage, ChatSession
 from backend.app.models.knowledge_base import KnowledgeBase
-from backend.app.services.llm import LLMMessage, LLMService, LLMResult, default_llm_config, create_llm_service
+from backend.app.services.llm import LLMConfig, LLMMessage, LLMService, LLMResult, create_llm_service
+from backend.app.services.model_settings import load_tenant_llm_config
 from backend.app.services.prompt_budget import build_prompt
 from backend.app.services.search import SearchHit, SearchService
 
@@ -137,8 +138,7 @@ def _to_history_item(msg: ChatMessage) -> MessageHistoryItem:
     )
 
 
-def _make_llm_service() -> LLMService:
-    cfg = default_llm_config()
+def _make_llm_service(cfg: LLMConfig) -> LLMService:
     return create_llm_service(cfg)
 
 
@@ -337,6 +337,7 @@ class _PreparedTurn:
     user_msg: ChatMessage
     llm_messages: list[LLMMessage]
     citations: list[dict]
+    llm_config: LLMConfig  # the tenant's effective model settings
 
 
 async def _prepare_turn(
@@ -393,8 +394,8 @@ async def _prepare_turn(
         top_k=req.top_k,
     )
 
-    # Fit system prompt + context + history + question into the model's context window.
-    cfg = default_llm_config()
+    # Fit system prompt + context + history + question into the tenant model's context window.
+    cfg = await load_tenant_llm_config(db, tenant_id)
     plan = build_prompt(
         question=req.content,
         hits=hits,
@@ -419,6 +420,7 @@ async def _prepare_turn(
         llm_messages=plan.messages,
         # Cite only what the model was actually shown.
         citations=_build_citations_from_hits(plan.used_hits),
+        llm_config=cfg,
     )
 
 
@@ -432,7 +434,7 @@ async def send_message(
     tenant_id, user = ctx
     turn = await _prepare_turn(db, tenant_id, user.id, session_id, req)
 
-    llm: LLMService = _make_llm_service()
+    llm: LLMService = _make_llm_service(turn.llm_config)
     result: LLMResult = await llm.generate(turn.llm_messages)
     if not result.content.strip():
         # Not committed, so the user message is rolled back too and can simply be resent.
@@ -541,7 +543,7 @@ async def stream_message(
     await db.refresh(turn.user_msg)
     user_payload = _to_message_response(turn.user_msg).model_dump(mode="json")
 
-    llm: LLMService = _make_llm_service()
+    llm: LLMService = _make_llm_service(turn.llm_config)
     events: asyncio.Queue = asyncio.Queue()  # unbounded: the producer never waits on the client
     task = asyncio.create_task(_generate_and_save(llm, turn, tenant_id, session_id, events))
     _generation_tasks.add(task)

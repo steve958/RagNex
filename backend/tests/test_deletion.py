@@ -58,7 +58,7 @@ def pipeline(monkeypatch):
         async def generate_stream(self, messages):
             yield "answer"
 
-    monkeypatch.setattr(chat_module, "_make_llm_service", lambda: EchoLLM(chat_module.default_llm_config()))
+    monkeypatch.setattr(chat_module, "_make_llm_service", lambda cfg: EchoLLM(cfg))
     return queue
 
 

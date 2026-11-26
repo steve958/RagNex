@@ -13,6 +13,15 @@ from backend.app.core.deps import get_current_user
 from backend.app.models.tenant import Tenant
 from backend.app.models.user import TenantMembership, User
 from backend.app.services.opensearch import OpenSearchService
+from backend.app.services.model_settings import (
+    EmbeddingOverrides,
+    LLMOverrides,
+    SettingsConflict,
+    SettingsError,
+    merge_embedding_update,
+    merge_llm_update,
+    settings_view,
+)
 
 router = APIRouter(prefix="/tenants")
 
@@ -225,3 +234,63 @@ async def update_member(
     m.role = req.role
     await db.commit()
     return {"ok": True}
+
+
+# --- Model settings ----------------------------------------------------------------------
+
+
+class ModelSettingsUpdate(BaseModel):
+    """Omit a section to leave it unchanged. See services/model_settings.py for the rules."""
+
+    llm: LLMOverrides | None = None
+    embedding: EmbeddingOverrides | None = None
+
+
+async def _load_live_tenant(db: AsyncSession, tenant_id: uuid.UUID) -> Tenant:
+    tenant = (
+        await db.execute(select(Tenant).where(Tenant.id == tenant_id, Tenant.deleted_at.is_(None)))
+    ).scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return tenant
+
+
+@router.get("/{tenant_id}/model-settings", response_model=dict)
+async def get_model_settings(
+    tenant_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Effective LLM/embedding settings and the tenant's overrides. API keys are never returned."""
+    membership = await _require_membership(db, tenant_id, current_user.id)
+    tenant = await _load_live_tenant(db, tenant_id)
+    return await settings_view(db, tenant, can_edit=membership.role == "owner")
+
+
+@router.put("/{tenant_id}/model-settings", response_model=dict)
+async def update_model_settings(
+    tenant_id: uuid.UUID,
+    req: ModelSettingsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    membership = await _require_membership(db, tenant_id, current_user.id)
+    if membership.role != "owner":
+        raise HTTPException(status_code=403, detail="Only owner can change model settings")
+    tenant = await _load_live_tenant(db, tenant_id)
+
+    try:
+        if req.llm is not None:
+            tenant.llm_config = merge_llm_update(tenant.llm_config or {}, req.llm)
+        if req.embedding is not None:
+            tenant.embedding_config = await merge_embedding_update(
+                db, tenant.id, tenant.embedding_config or {}, req.embedding
+            )
+    except SettingsConflict as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except SettingsError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    await db.commit()
+    await db.refresh(tenant)
+    return await settings_view(db, tenant, can_edit=True)

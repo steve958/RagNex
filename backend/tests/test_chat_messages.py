@@ -87,8 +87,8 @@ async def test_chat_message_rag_flow_monkeypatched(monkeypatch):
                 last_user = [m for m in messages if m.role == "user"][-1]
                 return chat_module.LLMResult(content=f"ANSWER: {last_user.content}")
 
-        def fake_make_llm_service() -> chat_module.LLMService:
-            return DummyLLM(chat_module.default_llm_config())
+        def fake_make_llm_service(cfg) -> chat_module.LLMService:
+            return DummyLLM(cfg)
 
         monkeypatch.setattr(chat_module, "_make_llm_service", fake_make_llm_service, raising=True)
 
