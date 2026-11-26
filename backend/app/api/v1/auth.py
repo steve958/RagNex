@@ -19,6 +19,7 @@ from backend.app.core.rate_limit import limiter
 router = APIRouter()
 
 password_hasher = PasswordHasher()
+_DUMMY_HASH = password_hasher.hash("timing-equaliser-not-a-real-password")
 token_service = TokenService()
 
 
@@ -72,9 +73,12 @@ async def register(request: Request, req: RegisterRequest, db: AsyncSession = De
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("20/minute")
 async def login(request: Request, req: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
-    res = await db.execute(select(User).where(User.email == req.email))
+    res = await db.execute(select(User).where(User.email == req.email, User.deleted_at.is_(None)))
     user = res.scalar_one_or_none()
-    if user is None or not password_hasher.verify(req.password, user.password_hash):
+    # Verify against a dummy hash for unknown emails too, so response time doesn't reveal
+    # which addresses have accounts.
+    password_ok = password_hasher.verify(req.password, user.password_hash if user else _DUMMY_HASH)
+    if user is None or not password_ok:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     access = token_service.create_access_token(user_id=user.id)

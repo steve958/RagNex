@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { uploadDocumentToKnowledgeBase } from '../../services/documentApi';
+import { errorDetail } from '../../services/errors';
 
 export const SUPPORTED_UPLOAD_TYPES =
   '.pdf,.docx,.xlsx,.csv,.pptx,.txt,.md,.markdown,.html,.htm,.json,.jsonl';
@@ -38,7 +39,8 @@ export const DocumentUploadForm: React.FC<Props> = ({ kbId }) => {
     }
   };
 
-  const backendError = (error as any)?.response?.data?.detail;
+  // errorDetail also handles 422 validation lists, which String() rendered as "[object Object]".
+  const backendError = error ? errorDetail(error, 'Upload failed. Please try again.') : null;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-2">
@@ -61,7 +63,11 @@ export const DocumentUploadForm: React.FC<Props> = ({ kbId }) => {
         </button>
       </div>
       {localError && <p className="text-xs text-red-400">{localError}</p>}
-      {backendError && <p className="text-xs text-red-400">{String(backendError)}</p>}
+      {backendError && (
+        <p role="alert" className="text-xs text-red-400">
+          {backendError}
+        </p>
+      )}
       <p className="text-[11px] text-slate-500">
         Supported: PDF, DOCX, DOC, TXT, MD, HTML, CSV, XLSX, JSON. Large files may take a while to parse and index.
       </p>

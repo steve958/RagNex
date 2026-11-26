@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 import anyio
@@ -145,9 +146,27 @@ async def delete_tenant(
     return {"ok": True}
 
 
+Role = Literal["member", "owner"]
+
+
 class AddMemberRequest(BaseModel):
     user_id: uuid.UUID
-    role: str = "member"  # member | owner
+    role: Role = "member"
+
+
+async def _ensure_an_owner_remains(db: AsyncSession, membership: TenantMembership, new_role: str | None) -> None:
+    """Refuse to remove (new_role=None) or demote the last owner: a tenant without an owner
+    can't manage members, settings or API keys, and nothing could recover it."""
+    if membership.role != "owner" or new_role == "owner":
+        return
+    owners = await db.execute(
+        select(func.count())
+        .select_from(TenantMembership)
+        .where(TenantMembership.tenant_id == membership.tenant_id, TenantMembership.role == "owner")
+    )
+    if int(owners.scalar_one()) <= 1:
+        action = "remove" if new_role is None else "demote"
+        raise HTTPException(status_code=400, detail=f"Cannot {action} the last owner; make someone else an owner first")
 
 
 @router.post("/{tenant_id}/members", response_model=dict)
@@ -175,6 +194,7 @@ async def add_member(
         m = TenantMembership(tenant_id=tenant_id, user_id=req.user_id, role=req.role)
         db.add(m)
     else:
+        await _ensure_an_owner_remains(db, m, req.role)
         m.role = req.role
 
     await db.commit()
@@ -192,12 +212,6 @@ async def remove_member(
     if cur.role != "owner":
         raise HTTPException(status_code=403, detail="Only owner can remove members")
 
-    # prevent removing last owner
-    owners = await db.execute(
-        select(func.count()).select_from(TenantMembership).where(TenantMembership.tenant_id == tenant_id, TenantMembership.role == "owner")
-    )
-    owner_count = int(owners.scalar_one())
-
     res = await db.execute(
         select(TenantMembership).where(TenantMembership.tenant_id == tenant_id, TenantMembership.user_id == user_id)
     )
@@ -205,8 +219,7 @@ async def remove_member(
     if m is None:
         raise HTTPException(status_code=404, detail="Membership not found")
 
-    if m.role == "owner" and owner_count <= 1:
-        raise HTTPException(status_code=400, detail="Cannot remove last owner")
+    await _ensure_an_owner_remains(db, m, None)
 
     await db.execute(delete(TenantMembership).where(TenantMembership.id == m.id))
     await db.commit()
@@ -214,7 +227,7 @@ async def remove_member(
 
 
 class UpdateMemberRequest(BaseModel):
-    role: str
+    role: Role
 
 
 @router.put("/{tenant_id}/members/{user_id}", response_model=dict)
@@ -236,6 +249,7 @@ async def update_member(
     if m is None:
         raise HTTPException(status_code=404, detail="Membership not found")
 
+    await _ensure_an_owner_remains(db, m, req.role)
     m.role = req.role
     await db.commit()
     return {"ok": True}
