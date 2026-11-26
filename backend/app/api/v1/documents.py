@@ -43,6 +43,13 @@ class DocumentStatusResponse(BaseModel):
 
     error_message: str | None = None
 
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class DocumentListResponse(BaseModel):
+    items: list[DocumentStatusResponse]
+
 
 _ALLOWED_EXTS = {".pdf", ".docx", ".doc", ".txt", ".md", ".html", ".csv", ".xlsx", ".json"}
 
@@ -55,7 +62,13 @@ async def get_document_status(
 ) -> DocumentStatusResponse:
     tenant_id, _user = ctx
 
-    res = await db.execute(select(Document).where(Document.id == doc_id, Document.tenant_id == tenant_id))
+    res = await db.execute(
+        select(Document).where(
+            Document.id == doc_id,
+            Document.tenant_id == tenant_id,
+            Document.deleted_at.is_(None),
+        )
+    )
     doc = res.scalar_one_or_none()
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -72,7 +85,62 @@ async def get_document_status(
         index_progress=float(doc.index_progress or 0.0),
         index_message=doc.index_message,
         error_message=doc.error_message,
+        created_at=doc.created_at.isoformat() if getattr(doc, "created_at", None) else None,
+        updated_at=doc.updated_at.isoformat() if getattr(doc, "updated_at", None) else None,
     )
+
+
+@router.get("/knowledgebases/{kb_id}/documents", response_model=DocumentListResponse)
+async def list_documents_for_knowledge_base(
+    kb_id: uuid.UUID,
+    ctx=Depends(require_tenant_membership),
+    db: AsyncSession = Depends(get_db),
+) -> DocumentListResponse:
+    tenant_id, _user = ctx
+
+    # Ensure KB belongs to tenant
+    res_kb = await db.execute(
+        select(KnowledgeBase).where(
+            KnowledgeBase.id == kb_id,
+            KnowledgeBase.tenant_id == tenant_id,
+            KnowledgeBase.deleted_at.is_(None),
+        )
+    )
+    kb = res_kb.scalar_one_or_none()
+    if kb is None:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+
+    res_docs = await db.execute(
+        select(Document)
+        .where(
+            Document.tenant_id == tenant_id,
+            Document.kb_id == kb_id,
+            Document.deleted_at.is_(None),
+        )
+        .order_by(Document.created_at.desc())
+    )
+    docs = res_docs.scalars().all()
+
+    items = [
+        DocumentStatusResponse(
+            id=doc.id,
+            kb_id=doc.kb_id,
+            filename=doc.filename,
+            status=doc.status,
+            parse_task_id=doc.parse_task_id,
+            parse_progress=float(doc.parse_progress or 0.0),
+            parse_message=doc.parse_message,
+            index_task_id=doc.index_task_id,
+            index_progress=float(doc.index_progress or 0.0),
+            index_message=doc.index_message,
+            error_message=doc.error_message,
+            created_at=doc.created_at.isoformat() if getattr(doc, "created_at", None) else None,
+            updated_at=doc.updated_at.isoformat() if getattr(doc, "updated_at", None) else None,
+        )
+        for doc in docs
+    ]
+
+    return DocumentListResponse(items=items)
 
 
 def _get_size_bytes(file: UploadFile) -> int | None:
@@ -99,7 +167,13 @@ async def upload_document(
     tenant_id, _user = ctx
 
     # Validate KB belongs to tenant
-    res = await db.execute(select(KnowledgeBase).where(KnowledgeBase.id == kb_id, KnowledgeBase.tenant_id == tenant_id))
+    res = await db.execute(
+        select(KnowledgeBase).where(
+            KnowledgeBase.id == kb_id,
+            KnowledgeBase.tenant_id == tenant_id,
+            KnowledgeBase.deleted_at.is_(None),
+        )
+    )
     kb = res.scalar_one_or_none()
     if kb is None:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
@@ -154,3 +228,34 @@ async def upload_document(
         status=doc.status,
         task_id=str(async_result.id),
     )
+
+
+@router.delete("/documents/{doc_id}", response_model=dict)
+async def delete_document(
+    doc_id: uuid.UUID,
+    ctx=Depends(require_tenant_membership),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Soft-delete a document for the current tenant.
+
+    For now this marks the document as deleted via the SoftDeleteMixin; chunks and indexed
+    data remain and can be cleaned up by a separate maintenance job.
+    """
+    tenant_id, _user = ctx
+
+    res = await db.execute(
+        select(Document).where(
+            Document.id == doc_id,
+            Document.tenant_id == tenant_id,
+            Document.deleted_at.is_(None),
+        )
+    )
+    doc = res.scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    import datetime as _dt
+
+    doc.deleted_at = _dt.datetime.now(tz=_dt.timezone.utc)
+    await db.commit()
+    return {"ok": True}

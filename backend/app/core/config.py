@@ -51,10 +51,17 @@ class Settings(BaseSettings):
     embedding_rps: float = 5.0
     embedding_cache_ttl_s: int = 24 * 3600
 
+    # OpenAI-compatible HTTP endpoints (embeddings + chat)
     openai_api_key: str | None = None
     openai_base_url: str = "https://api.openai.com/v1"
     ollama_base_url: str = "http://localhost:11434"
     vllm_base_url: str | None = None
+
+    # LLM defaults (P4-1)
+    llm_provider: str = "ollama"  # ollama|openai|vllm (others can be added later)
+    llm_model: str = "llama3"
+    llm_temperature: float = 0.2
+    llm_max_tokens: int = 2048
 
     # S3-compatible storage (MinIO)
     s3_endpoint_url: str = "http://localhost:9000"

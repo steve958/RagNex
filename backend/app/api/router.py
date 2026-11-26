@@ -9,6 +9,7 @@ from backend.app.api.v1.tasks import router as tasks_router
 from backend.app.api.v1.documents import router as documents_router
 from backend.app.api.v1.chunks import router as chunks_router
 from backend.app.api.v1.knowledgebases import router as knowledgebases_router
+from backend.app.api.v1.chat import router as chat_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
@@ -18,3 +19,4 @@ api_router.include_router(tasks_router, tags=["tasks"])
 api_router.include_router(documents_router, tags=["documents"])
 api_router.include_router(chunks_router, tags=["chunks"])
 api_router.include_router(knowledgebases_router, tags=["knowledgebases"])
+api_router.include_router(chat_router, tags=["chat"])
