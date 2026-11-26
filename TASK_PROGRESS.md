@@ -556,6 +556,7 @@ Notes:
 - 2026-11-26: Added `backend/tests/test_e2e_pipeline.py`. Through the HTTP API, it covers upload (real MinIO) → parse/chunk → embed/index (real OpenSearch) → hybrid search → streamed chat. It runs the real Celery task code in-process via `.apply()`. Only the embedding model (deterministic hashed bag-of-words) and the LLM are faked. It checks KB isolation, that the retrieved text reaches the prompt, and that citations resolve to real chunks. It auto-skips when OpenSearch/MinIO are unreachable and deletes its OpenSearch indices and MinIO bucket afterwards.
 - 2026-11-26: The test found that `StorageService.upload_file` never wrote to MinIO: it returned an un-awaited coroutine, so every upload saved the DB row but no file, and parsing then failed with `NoSuchKey`. Fixed. The test also fails if the ISM 409 fix is reverted.
 - 2026-11-26: Deletion works in two phases. Deleting a document or KB marks it deleted, and search, chunk, document and chat endpoints ignore it immediately. A `purge_document` Celery task (`app/tasks/purge.py`, default queue, retries) then removes its OpenSearch entries, chunk rows and MinIO file, and keeps the Document row as a record. Deleting a KB marks all its documents deleted. Parsing and indexing check for deletion before and after writing, so a document deleted mid-pipeline isn't written back. Chats whose KBs are all deleted keep readable history, but new questions get a 400 and the UI shows a banner. Tests: `backend/tests/test_deletion.py` (real stack).
+- 2026-11-26: Backfill for deletions made before purging existed: `python -m backend.app.services.deletion_backfill`. It's a dry run by default; use `--execute` to apply, `--enqueue` to use Celery instead of running inline, and `--tenant-id` / `--limit` to scope a run. It marks documents of deleted KBs as deleted, then purges every deleted document that still has a file or chunk rows. Safe to re-run. Tests: `backend/tests/test_deletion_backfill.py`.
 - 2026-11-26: Fixed Celery workers registering no tasks: `autodiscover_tasks` looked for a non-existent `backend.app.tasks.tasks` module. Task modules are now listed in `celery_app.conf.include`.
 
 ### P6-3: Performance Testing
@@ -576,14 +577,20 @@ Notes:
 ## Phase 7: Deployment & Documentation
 
 ### P7-1: Docker Production Images
-- [ ] Create production Dockerfiles
-  - [ ] `Dockerfile.backend`
-  - [ ] `Dockerfile.frontend`
-  - [ ] `Dockerfile.worker`
-- [ ] Optimize image sizes
-- [ ] Create `docker-compose.prod.yml`
+- [x] Create production Dockerfiles
+  - [x] `docker/backend.Dockerfile` (API, worker and migrations share one image; the command picks the role)
+  - [x] `docker/frontend.Dockerfile` (nginx serving the app and proxying `/api`)
+  - [x] Worker: same image as the backend, `worker` command
+- [x] Optimize image sizes (multi-stage builds: backend 557 MB, frontend 49 MB)
+- [x] Create `docker-compose.prod.yml`
 - [ ] Set up image registry
-- [ ] Create image tagging strategy
+- [ ] Create image tagging strategy (images are tagged `${RAGNEX_VERSION:-latest}`; no registry or CI yet)
+
+Notes:
+- 2026-11-26: The backend image runs as a non-root user and fails the build if the app, the Celery tasks or any document parser can't be imported (DeepDoc silently disables parsers whose dependencies are missing).
+- 2026-11-26: `docker-compose.prod.yml` publishes only nginx. A one-shot `migrate` service runs before `api`/`worker`. Secrets have no defaults, so compose refuses to start without them. The API trusts `X-Forwarded-For` so rate limits apply per client, not to nginx. nginx disables buffering on `/api` so chat answers stream.
+- 2026-11-26: `backend/pyproject.toml` was missing runtime dependencies (PyJWT, passlib, argon2-cffi, email-validator, slowapi, greenlet via `sqlalchemy[asyncio]`) and couldn't be installed (`pip install -e` failed on the flat layout). Both fixed.
+- 2026-11-26: Verified on a local stack through nginx: upload → worker parse → indexing reaching host Ollama. Search and chat need `bge-m3` pulled, so they weren't exercised in this stack.
 
 ### P7-2: Kubernetes Manifests
 - [ ] Create Kubernetes manifests

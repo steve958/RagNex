@@ -40,8 +40,8 @@ The following are explicitly out of scope for this project:
   - `backend/tests/` – backend test suite
   - `backend/alembic/` – database migrations
 - `frontend/` – React SPA
-- `deepdoc/` – DeepDoc extraction/standalone module (to be added)
-- `docker/` – Docker-related configs
+- `deepdoc/` – DeepDoc document parsing module
+- `docker/` – Dockerfiles, nginx config and container entrypoint
 - `docs/` – documentation
 - `scripts/` – developer scripts
 
@@ -54,7 +54,80 @@ If you want to see what’s planned and what’s already done:
 - Progress tracker: `TASK_PROGRESS.md`
 
 ## Getting started
-This will be filled in as Phase 0 continues (dev environment + compose + env files).
+
+### Models
+RagNex needs an LLM and an embedding model. The default is [Ollama](https://ollama.com)
+on the same machine:
+
+```bash
+ollama pull llama3      # chat model (LLM_MODEL)
+ollama pull bge-m3      # embedding model (EMBEDDING_MODEL, 1024 dimensions)
+```
+
+OpenAI-compatible endpoints (OpenAI, vLLM) work too; see `LLM_PROVIDER` and
+`EMBEDDING_PROVIDER` in `.env.example`.
+
+### Run it with Docker (production-style)
+
+```bash
+cp .env.prod.example .env.prod          # fill in the four required secrets
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
+
+Open http://localhost:8080 (or `RAGNEX_HTTP_PORT`). This starts:
+
+| Service | Role |
+|---|---|
+| `frontend` | nginx: serves the web app and proxies `/api` to the API (the only published port) |
+| `api` | FastAPI backend |
+| `worker` | Celery worker: parses, embeds and indexes uploads; purges deleted documents |
+| `migrate` | applies database migrations once, then exits; `api` and `worker` wait for it |
+| `postgres`, `redis`, `opensearch`, `minio` | data stores, internal network only |
+
+Images: `docker/backend.Dockerfile` (API, worker and migrations share one image; the
+command picks the role: `api`, `worker` or `migrate`) and `docker/frontend.Dockerfile`.
+
+Before exposing it beyond your machine:
+- put TLS in front of the `frontend` port (a reverse proxy or load balancer);
+- set `LLM_CONTEXT_WINDOW` to your chat model's real context size;
+- keep `EMBEDDING_DIMENSION` matching the embedding model (changing it later requires reindexing).
+
+Upgrading: `docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build`
+rebuilds the images and re-runs migrations before the API starts.
+
+### Local development
+
+Requirements: Python 3.13, Node 22, Docker.
+
+```bash
+# Data stores (Postgres, Redis, OpenSearch, MinIO) with published ports
+docker compose -f docker-compose.dev.yml up -d
+cp .env.example .env
+
+# Backend: installs dependencies only; code is imported as `backend.app.*` from the repo root
+python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\Activate.ps1
+pip install -e "./backend[dev,deepdoc]"
+alembic -c backend/alembic.ini upgrade head
+python -m uvicorn backend.app.main:create_app --factory --reload           # API on :8000
+celery -A backend.app.core.celery_app.celery_app worker -Q default,parsing,embedding,indexing --loglevel=info
+
+# Frontend (Vite proxies /api to :8000)
+cd frontend && npm install && npm run dev                                  # http://localhost:5173
+```
+
+Run all commands from the repo root unless noted. On Windows, add `--pool=solo` to the
+Celery command.
+
+### Tests
+
+```bash
+cd backend && python -m pytest       # needs the dev data stores; end-to-end tests skip without them
+cd frontend && npx vitest run
+```
+
+### Maintenance
+- `python -m backend.app.services.deletion_backfill`: purges data left behind by deletions
+  made before deletion purging existed. Dry run by default; `--execute` applies it.
 
 ## License
 TBD (will be decided before the first public release).
