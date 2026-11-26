@@ -1,0 +1,92 @@
+# Session Summary
+
+This session focused on advancing the RagNex implementation through the end of Phase 5 and into Phase 6.
+
+## What was done
+
+- **P5‑4: Document Upload & Management UI**
+  - Backend:
+    - Extended document API with:
+      - `GET /api/v1/knowledgebases/{kb_id}/documents` (list documents per KB).
+      - `DELETE /api/v1/documents/{doc_id}` (soft delete).
+      - Ensured document and chunk endpoints respect soft deletion.
+  - Frontend:
+    - Added `documentApi` service for listing/uploading/deleting documents and fetching status.
+    - Replaced the KB detail placeholder with:
+      - `DocumentUploadForm` (file upload to selected KB).
+      - `DocumentList` (status, progress, delete with confirmation).
+      - `DocumentDetailModal` (parse/index progress, error display, polling).
+
+- **P5‑5: Chunk Visualization UI**
+  - Backend already had chunk APIs; frontend work added:
+    - `chunkApi` service (`listChunksForDocument`, `getChunk`).
+    - `DocumentChunkList` with pagination, in-document search (`q`), and inline highlighting.
+    - `ChunkDetailModal` to show full chunk content with highlighting.
+    - Integrated chunk viewer into `DocumentDetailModal` under a “Chunks” section.
+
+- **P5‑6: Chat Interface UI**
+  - Backend chat API was already in place.
+  - Frontend:
+    - `chatApi` service for sessions, history, and sending messages.
+    - `ChatPage`:
+      - Session sidebar with list/create/delete.
+      - KB selection dropdown for new sessions.
+      - Chat window with message bubbles, timestamps, and “sending…” state.
+      - Citation link on assistant messages that opens the cited chunk via `ChunkDetailModal`.
+    - Added `/chat` route and header nav entry (protected).
+
+- **P5‑7: Settings & Configuration UI**
+  - Settings APIs:
+    - `apiKeysApi` for listing/creating/revoking API keys.
+    - `tenantsApi` for listing accessible tenants.
+  - Components:
+    - `SettingsPage` with tabs: **LLM**, **Embeddings**, **API keys**, **Team & tenant**.
+    - `LlmSettingsSection` and `EmbeddingSettingsSection` (local-only configuration stubs, clearly marked “coming soon”).
+    - `ApiKeysSection` (fully wired to backend for create/list/revoke, showing plaintext key once).
+    - `TeamSettingsSection` (read-only tenant list).
+  - Added `/settings` route and header nav link (protected).
+
+- **P5‑8: Responsive Design & Polish**
+  - Skeleton loading states for:
+    - `KnowledgeBaseList` (cards).
+    - `DocumentList` (rows).
+  - Global UI resilience:
+    - `ErrorBoundary` wrapped around the app for friendly fallback on unexpected errors.
+    - `ToastProvider` + `useToast` for lightweight notifications; used in:
+      - API key create/revoke.
+      - Knowledge base creation.
+  - UX improvements:
+    - `ChatPage` responsive layout (column on mobile, row on desktop; min heights).
+    - `SettingsPage` nav scrolls horizontally on small screens.
+    - Mobile navigation in `AppLayout`:
+      - “Menu” button for authenticated users that opens Dashboard/Chat/Settings links plus logout.
+    - Keyboard shortcut in chat: **Ctrl+Enter / Cmd+Enter** sends the current message.
+
+- **Phase 6: Unit Test Coverage (Front‑end)**
+  - Testing stack:
+    - Added **Vitest** config (`vitest.config.ts`) with `jsdom` environment and `src/test/setup.ts`.
+    - Added Testing Library + jest-dom setup.
+  - Initial test:
+    - `KnowledgeBaseList.test.tsx` verifies the KB list renders names from a mocked API response.
+  - Updated `TASK_PROGRESS.md` to mark “Frontend unit tests” as started.
+
+## Where to continue next
+
+For the next session, a natural continuation in **Phase 6** is:
+
+1. **Backend unit tests (P6‑1)**
+   - Increase coverage for:
+     - Document list/delete APIs.
+     - New chat session/message behaviors (multi-KB validation, deleted entities).
+     - Settings-related APIs if desired (API keys/tenants).
+
+2. **Integration tests (P6‑2)**
+   - Add one or more end-to-end backend tests that cover realistic flows, for example:
+     - Register user → create KB → upload document (patched storage/tasks) → ensure chunks/indexing → run KB search.
+     - Register user → create KB → create chat session → send chat message with patched Search/LLM → inspect citations.
+
+3. **Frontend unit tests expansion**
+   - Add tests for:
+     - `DocumentList` (in-progress polling, empty state, delete flow).
+     - `ChatPage` (rendering of sessions, pending “Sending…” bubble).
+     - Settings sections (API key table behavior, basic LLM/embedding form rendering).

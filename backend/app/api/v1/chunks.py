@@ -45,7 +45,13 @@ async def list_document_chunks(
     # Ensure document exists and is in tenant
     from sqlalchemy import select
 
-    res = await db.execute(select(Document).where(Document.id == doc_id, Document.tenant_id == tenant_id))
+    res = await db.execute(
+        select(Document).where(
+            Document.id == doc_id,
+            Document.tenant_id == tenant_id,
+            Document.deleted_at.is_(None),
+        )
+    )
     if res.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Document not found")
 

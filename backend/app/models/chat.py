@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import ForeignKey, Index, String, Table, Text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Table, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -66,6 +67,13 @@ class ChatMessage(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # user | assistant | system
     content: Mapped[str] = mapped_column(Text, nullable=False)
     citations: Mapped[list[dict]] = mapped_column(JSONB, default=list, nullable=False)
+
+    # Messages are ordered by created_at, so it must reflect actual insert order. The mixin's
+    # now() is the *transaction start* time, which gives every message written in one
+    # transaction (e.g. question + answer) the same timestamp; clock_timestamp() does not.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp(), nullable=False
+    )
 
     session: Mapped[ChatSession] = relationship(back_populates="messages")
 

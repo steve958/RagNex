@@ -57,3 +57,22 @@ async def test_health_ready_patched(monkeypatch):
         body = r.json()
         assert body["ok"] is True
         assert set(body["components"].keys()) == {"postgres", "redis", "minio", "opensearch"}
+
+
+@pytest.mark.asyncio
+async def test_cors_preflight_allows_auth_and_tenant_headers():
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.options(
+            "/api/v1/chat/sessions/x/messages/stream",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,x-tenant-id,content-type",
+            },
+        )
+    assert r.status_code == 200, r.text
+    assert r.headers["access-control-allow-origin"] == "http://localhost:5173"
+    allowed = r.headers["access-control-allow-headers"].lower()
+    assert "x-tenant-id" in allowed and "authorization" in allowed

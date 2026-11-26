@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from opensearchpy import OpenSearch
+from opensearchpy.exceptions import ConflictError
 
 from backend.app.core.config import settings
 
@@ -76,8 +77,13 @@ class OpenSearchService:
         }
 
         client = self._client()
-        # PUT is idempotent for a policy id.
-        client.transport.perform_request("PUT", f"/_plugins/_ism/policies/{policy_id}", body=body)
+        # Create-if-absent. ISM policy PUT is *not* idempotent: once the policy exists,
+        # OpenSearch answers 409 unless if_seq_no/if_primary_term are supplied. Changing
+        # rollover/delete settings for an existing policy therefore needs an explicit update.
+        try:
+            client.transport.perform_request("PUT", f"/_plugins/_ism/policies/{policy_id}", body=body)
+        except ConflictError:
+            pass
 
     def ensure_template(self) -> None:
         """Ensure an index template exists for chunk indices."""

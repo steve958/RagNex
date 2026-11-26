@@ -372,120 +372,166 @@ Notes:
 - 2025-12-18: Added endpoint `backend/app/api/v1/knowledgebases.py` and registered router.
 - 2025-12-18: Added tests `backend/tests/test_search.py`; verified backend test suite passes: `34 passed, 2 skipped`.
 
-### P3-5: Re-ranking Integration
-- [ ] Create re-ranker abstraction
-- [ ] Implement cross-encoder re-ranker (optional)
-- [ ] Implement Cohere re-ranker (optional)
-- [ ] Add re-ranking configuration
-- [ ] Integrate into search pipeline
+### P3-5: Re-ranking Integration (skipped for v1)
+- [ ] Create re-ranker abstraction (skipped)
+- [ ] Implement cross-encoder re-ranker (optional, skipped)
+- [ ] Implement Cohere re-ranker (optional, skipped)
+- [ ] Add re-ranking configuration (skipped)
+- [ ] Integrate into search pipeline (skipped)
+
+Notes:
+- 2026-01-15: Explicitly decided to skip P3-5 re-ranking for the initial release; hybrid BM25 + vector search from P3-4 is considered sufficient.
 
 ---
 
 ## Phase 4: LLM & Chat Integration
 
 ### P4-1: LLM Provider Abstraction
-- [ ] Create LLM service interface
-- [ ] Implement providers using LiteLLM
-- [ ] Support models
-  - [ ] Ollama
-  - [ ] vLLM
-  - [ ] OpenAI
-  - [ ] Anthropic
-  - [ ] DeepSeek
+- [x] Create LLM service interface
+- [ ] Implement providers using LiteLLM (deferred; using direct HTTP clients for now)
+- [x] Support models
+- [x] Ollama
+- [x] vLLM
+- [x] OpenAI
+- [ ] Anthropic
+- [ ] DeepSeek
 - [ ] Create LLM configuration per tenant
 - [ ] Add token counting and limit enforcement
 
+Notes:
+- 2026-01-15: Added `backend/app/services/llm.py` with `LLMService` abstraction, `OllamaLLM` and `OpenAICompatibleLLM`, plus `LLMConfig`/`LLMMessage`/`LLMResult` and a `create_llm_service` factory.
+- 2026-01-15: Introduced LLM defaults in `backend/app/core/config.py` (`llm_provider`, `llm_model`, `llm_temperature`, `llm_max_tokens`) and a `default_llm_config()` helper.
+- 2026-01-15: LiteLLM integration and per-tenant LLM configuration remain TODOs for a follow-up task.
+
 ### P4-2: Chat Session Management
-- [ ] Create chat session endpoints
-  - [ ] `POST /api/v1/chat/sessions`
-  - [ ] `GET /api/v1/chat/sessions`
-  - [ ] `GET /api/v1/chat/sessions/{id}`
-  - [ ] `DELETE /api/v1/chat/sessions/{id}`
-- [ ] Implement session configuration
-- [ ] Store session metadata in PostgreSQL
+- [x] Create chat session endpoints
+- [x] `POST /api/v1/chat/sessions`
+- [x] `GET /api/v1/chat/sessions`
+- [x] `GET /api/v1/chat/sessions/{id}`
+- [x] `DELETE /api/v1/chat/sessions/{id}`
+- [x] Implement session configuration
+- [x] Store session metadata in PostgreSQL
 - [ ] Implement session sharing (optional)
 
+Notes:
+- 2026-01-15: Added `backend/app/api/v1/chat.py` with chat session CRUD endpoints scoped by tenant (`X-Tenant-ID`) and current user, plus KB associations via `chat_session_knowledge_bases`.
+- 2026-01-15: Added tests `backend/tests/test_chat_sessions.py` covering session create/list/get/delete and validation when referencing unknown knowledge base IDs.
+
 ### P4-3: RAG Chat Pipeline
-- [ ] Create chat message endpoint
-- [ ] Implement RAG pipeline (search -> context -> prompt -> stream)
-- [ ] Implement citation extraction
-- [ ] Store messages with citations
-- [ ] Support conversation history context
+- [x] Create chat message endpoint
+- [x] Implement RAG pipeline (search -> context -> prompt -> stream)
+- [x] Implement citation extraction
+- [x] Store messages with citations
+- [x] Support conversation history context
+
+Notes:
+- 2026-01-15: Added `POST /api/v1/chat/sessions/{session_id}/messages` in `backend/app/api/v1/chat.py`, which performs hybrid search via `SearchService`, builds context, calls the LLM abstraction, and stores both user and assistant messages with citations.
+- 2026-01-15: Implemented simple citation extraction by attaching top search hits (`chunk_id`, `doc_id`, `kb_id`, `score`) to assistant messages; full text-level citation parsing can be added later.
+- 2026-01-15: Added test `backend/tests/test_chat_messages.py` with patched search + LLM to exercise the RAG pipeline end-to-end without external services.
+- 2026-11-26: Fixed the new user message being sent to the LLM twice.
+- 2026-11-26: Added streaming: `POST /api/v1/chat/sessions/{id}/messages/stream` (SSE events `meta` → `delta`* → `done`, or `error`). Native streaming in `OllamaLLM` (NDJSON) and `OpenAICompatibleLLM` (SSE). Shared turn setup in `_prepare_turn`. The user message is committed before streaming; on generation failure no assistant message is saved. Frontend `ChatPage` renders tokens live via `streamChatMessage` (fetch + `SseParser`). Verified end-to-end against Ollama `gemma2:2b`, directly and through the Vite proxy.
+- 2026-11-26: Fixed `OpenSearchService.ensure_chunks_policy` failing with 409 once the ISM policy exists (it runs on every search and indexing call).
+- 2026-11-26: Frontend now sends `X-Tenant-ID` (resolved after login), the backend has CORS, and Vite proxies `/api` in dev. Before this, tenant-scoped calls from the UI could not succeed.
+- Open: a stream aborted by the client (tab closed) saves no assistant message; partial answers are discarded.
 
 ### P4-4: Message History & Context Management
-- [ ] Create message history endpoints
-  - [ ] `GET /api/v1/chat/sessions/{id}/messages`
+- [x] Create message history endpoints
+- [x] `GET /api/v1/chat/sessions/{id}/messages`
 - [ ] Implement context window management
 - [ ] Add message summarization for long conversations
-- [ ] Implement message pagination
-- [ ] Add message metadata (timestamps, token counts)
+- [x] Implement message pagination
+- [x] Add message metadata (timestamps, token counts)
+
+Notes:
+- 2026-01-15: Added `GET /api/v1/chat/sessions/{session_id}/messages` in `backend/app/api/v1/chat.py` with offset/limit pagination, scoped to the current tenant and user.
+- 2026-01-15: Each history item now includes a naive `token_estimate` alongside role/content/citations/timestamps, to support future context window management.
+- 2026-01-15: Context window trimming and true summarization are deferred; current RAG pipeline uses full per-session history.
 
 ---
 
 ## Phase 5: Web Frontend
 
 ### P5-1: Frontend Project Setup
-- [ ] Initialize React project with Vite
-- [ ] Set up project structure
-- [ ] Install core dependencies
-- [ ] Configure Tailwind CSS
-- [ ] Set up React Query provider
-- [ ] Create API client with interceptors
-- [ ] Set up routing structure
-- [ ] Create authentication context
+- [x] Initialize React project with Vite
+- [x] Set up project structure
+- [x] Install core dependencies
+- [x] Configure Tailwind CSS
+- [x] Set up React Query provider
+- [x] Create API client with interceptors
+- [x] Set up routing structure
+- [x] Create authentication context
+
+Notes:
+- 2026-01-15: Scaffolded `frontend/` as a Vite React+TS app with `index.html`, `tsconfig.json`, `vite.config.ts`, and `src/` structure (`components/`, `pages/`, `services/`, `store/`).
+- 2026-01-15: Added React Router skeleton (`App.tsx`, layout header, Login/Register/Dashboard placeholder pages).
+- 2026-01-15: Wired React Query provider and axios `apiClient` with `VITE_API_URL` base URL.
+- 2026-01-15: Integrated Tailwind CSS (`tailwind.config.js`, `postcss.config.js`, `src/styles.css` with Tailwind directives).
+- 2026-01-15: Added initial `AuthProvider` context stub (`src/store/auth.tsx`) to be completed in P5-2.
 
 ### P5-2: Authentication UI
-- [ ] Create Login page
-- [ ] Create Registration page
-- [ ] Implement auth store/context
-- [ ] Add protected route wrapper
-- [ ] Implement token refresh logic
-- [ ] Create user menu (profile, logout)
+- [x] Create Login page
+- [x] Create Registration page
+- [x] Implement auth store/context
+- [x] Add protected route wrapper
+- [ ] Implement token refresh logic (partial: tokens persisted and attached; background refresh deferred)
+- [x] Create user menu (profile email + logout)
+
+Notes:
+- 2026-01-15: Implemented `LoginPage` and `RegisterPage` with basic Tailwind-styled forms that call the backend `/api/v1/auth/login` and `/api/v1/auth/register` endpoints via the new auth store.
+- 2026-01-15: Added `AuthProvider` in `frontend/src/store/auth.tsx` with localStorage persistence, integration with `apiClient` (Authorization header), and simple `login`/`register`/`logout` APIs.
+- 2026-01-15: Introduced a `ProtectedRoute` wrapper in `App.tsx` so the dashboard is only accessible when authenticated.
+- 2026-01-15: Updated `AppLayout` to show the current user's email and a Logout button instead of Login/Register when authenticated.
+- 2026-01-15: Full token refresh flow (`/api/v1/auth/refresh` on expiry) is deferred to a later enhancement; current implementation expects the backend tokens to remain valid during a normal session.
 
 ### P5-3: Knowledge Base Management UI
-- [ ] Create Knowledge Base list page
-- [ ] Create KB creation modal
-- [ ] Create KB detail page
-- [ ] Create KB settings page
-- [ ] Implement KB API hooks
+- [x] Create Knowledge Base list page
+- [x] Create KB creation modal
+- [x] Create KB detail page
+- [x] Create KB settings page
+- [x] Implement KB API hooks
+
+Notes:
+- 2026-01-15: Added `KnowledgeBaseList` and `KnowledgeBaseCreateModal` components on the dashboard, backed by React Query and new `kbApi` hooks for listing and creating KBs.
+- 2026-01-15: Extended backend knowledge base router to support list/create/get/update/delete for KBs, in addition to the existing search endpoint.
+- 2026-01-15: Implemented KB detail (`KnowledgeBaseDetailPage`) and settings (`KnowledgeBaseSettingsPage`) pages with routing and React Query hooks for viewing, editing, and deleting knowledge bases.
 
 ### P5-4: Document Upload & Management UI
-- [ ] Create document upload component
-- [ ] Create document list component
-- [ ] Create document detail modal
-- [ ] Implement real-time status updates
-- [ ] Create document deletion with confirmation
+- [x] Create document upload component
+- [x] Create document list component
+- [x] Create document detail modal
+- [x] Implement real-time status updates
+- [x] Create document deletion with confirmation
 
 ### P5-5: Chunk Visualization UI
-- [ ] Create chunk list view
-- [ ] Create chunk detail modal
-- [ ] Add chunk search within document
-- [ ] Implement chunk highlighting in context
+- [x] Create chunk list view
+- [x] Create chunk detail modal
+- [x] Add chunk search within document
+- [x] Implement chunk highlighting in context
 
 ### P5-6: Chat Interface UI
-- [ ] Create chat layout
-- [ ] Create session list component
-- [ ] Create message component
-- [ ] Implement streaming message display
-- [ ] Create citation popup/modal
-- [ ] Add session configuration panel
+- [x] Create chat layout
+- [x] Create session list component
+- [x] Create message component
+- [x] Implement streaming message display
+- [x] Create citation popup/modal
+- [x] Add session configuration panel
 
 ### P5-7: Settings & Configuration UI
-- [ ] Create settings layout with tabs/sections
-- [ ] Create LLM configuration page
-- [ ] Create embedding configuration page
-- [ ] Create API key management page
-- [ ] Create team/tenant management page
+- [x] Create settings layout with tabs/sections
+- [x] Create LLM configuration page
+- [x] Create embedding configuration page
+- [x] Create API key management page
+- [x] Create team/tenant management page
 
 ### P5-8: Responsive Design & Polish
-- [ ] Implement responsive breakpoints
-- [ ] Create mobile navigation
-- [ ] Optimize chat UI for mobile
-- [ ] Add loading states and skeletons
-- [ ] Implement error boundaries
-- [ ] Add toast notifications
-- [ ] Create empty states for lists
-- [ ] Add keyboard shortcuts
+- [x] Implement responsive breakpoints
+- [x] Create mobile navigation
+- [x] Optimize chat UI for mobile
+- [x] Add loading states and skeletons
+- [x] Implement error boundaries
+- [x] Add toast notifications
+- [x] Create empty states for lists
+- [x] Add keyboard shortcuts
 
 ---
 
@@ -493,7 +539,7 @@ Notes:
 
 ### P6-1: Unit Test Coverage
 - [ ] Backend unit tests (target: 80% coverage)
-- [ ] Frontend unit tests
+- [x] Frontend unit tests
 - [ ] DeepDoc parser tests
 - [ ] Run coverage reports in CI
 
@@ -501,7 +547,11 @@ Notes:
 - [ ] Create integration test fixtures
 - [ ] Write API integration tests
 - [ ] Write chunking parity tests
-- [ ] Create end-to-end test scenarios
+- [x] Create end-to-end test scenarios (upload → answer; more scenarios still to add)
+
+Notes:
+- 2026-11-26: Added `backend/tests/test_e2e_pipeline.py`. Through the HTTP API, it covers upload (real MinIO) → parse/chunk → embed/index (real OpenSearch) → hybrid search → streamed chat. It runs the real Celery task code in-process via `.apply()`. Only the embedding model (deterministic hashed bag-of-words) and the LLM are faked. It checks KB isolation, that the retrieved text reaches the prompt, and that citations resolve to real chunks. It auto-skips when OpenSearch/MinIO are unreachable and deletes its OpenSearch indices and MinIO bucket afterwards.
+- 2026-11-26: The test found that `StorageService.upload_file` never wrote to MinIO: it returned an un-awaited coroutine, so every upload saved the DB row but no file, and parsing then failed with `NoSuchKey`. Fixed. The test also fails if the ISM 409 fix is reverted.
 
 ### P6-3: Performance Testing
 - [ ] Create load test scripts (Locust/k6)
