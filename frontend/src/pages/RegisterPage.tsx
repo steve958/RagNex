@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
-import { useAuth } from '../store/auth';
+import { NoTenantError, useAuth } from '../store/auth';
 
 export const RegisterPage: React.FC = () => {
   const { register } = useAuth();
@@ -24,7 +24,7 @@ export const RegisterPage: React.FC = () => {
       await register(email, password);
       navigate('/');
     } catch (err: any) {
-      const msg = err?.response?.data?.detail ?? 'Registration failed';
+      const msg = err instanceof NoTenantError ? err.message : err?.response?.data?.detail ?? 'Registration failed';
       setError(typeof msg === 'string' ? msg : 'Registration failed');
     } finally {
       setSubmitting(false);

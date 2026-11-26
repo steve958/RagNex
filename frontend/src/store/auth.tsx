@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { apiClient, setAccessToken, setTenantId } from '../services/apiClient';
 import { TenantSummary } from '../services/tenantsApi';
@@ -48,6 +49,14 @@ const saveStoredAuth = (data: StoredAuth | null) => {
   }
 };
 
+/** The account can authenticate but belongs to no tenant, so the app is unusable. */
+export class NoTenantError extends Error {
+  constructor() {
+    super('Your account is not a member of any workspace. Ask an administrator to add you.');
+    this.name = 'NoTenantError';
+  }
+}
+
 /** Pick the tenant to work in. Users currently get one personal tenant on registration. */
 const resolveTenantId = async (token: string): Promise<string | null> => {
   const res = await apiClient.get<TenantSummary[]>('/api/v1/tenants', {
@@ -57,6 +66,7 @@ const resolveTenantId = async (token: string): Promise<string | null> => {
 };
 
 export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
+  const queryClient = useQueryClient();
   // Initialise synchronously from storage so a page reload doesn't briefly look
   // logged-out (which would make ProtectedRoute redirect to /login).
   const [auth, setAuth] = useState<StoredAuth | null>(() => {
@@ -73,17 +83,28 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     setAuth(next);
   };
 
+  // Drop every cached query when the identity changes, so the next user never sees
+  // the previous user's sessions, knowledge bases or messages.
+  const switchIdentity = (next: StoredAuth | null) => {
+    queryClient.clear();
+    apply(next);
+  };
+
   // Sessions stored before tenant support have tokens but no tenant: resolve it once.
   useEffect(() => {
     if (!auth || auth.tenantId) return;
     let cancelled = false;
     resolveTenantId(auth.accessToken)
       .then((tenantId) => {
-        if (!cancelled) apply({ ...auth, tenantId });
+        if (cancelled) return;
+        // No tenant: log out rather than store tenantId=null again, which would re-run
+        // this effect forever. The login form then explains the problem.
+        if (tenantId) apply({ ...auth, tenantId });
+        else switchIdentity(null);
       })
       .catch(() => {
         // Token likely expired or invalid: force a fresh login.
-        if (!cancelled) apply(null);
+        if (!cancelled) switchIdentity(null);
       });
     return () => {
       cancelled = true;
@@ -97,7 +118,8 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
       refresh_token: string;
     };
     const tenantId = await resolveTenantId(access_token);
-    apply({ email, accessToken: access_token, refreshToken: refresh_token, tenantId });
+    if (!tenantId) throw new NoTenantError();
+    switchIdentity({ email, accessToken: access_token, refreshToken: refresh_token, tenantId });
   };
 
   const value: AuthState = {
@@ -108,7 +130,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     isAuthenticated: !!auth?.accessToken,
     login: (email, password) => authenticate('/api/v1/auth/login', email, password),
     register: (email, password) => authenticate('/api/v1/auth/register', email, password),
-    logout: () => apply(null),
+    logout: () => switchIdentity(null),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
