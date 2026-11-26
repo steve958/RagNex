@@ -59,7 +59,8 @@ export const ChatPage: React.FC = () => {
 
   const { data: historyData, isLoading: historyLoading } = useQuery({
     queryKey: ['chat-history', selectedSessionId],
-    queryFn: () => getMessageHistory(selectedSessionId!, { offset: 0, limit: 200 }),
+    // Newest page (the server caps limit at 100), so new messages never fall off the end.
+    queryFn: () => getMessageHistory(selectedSessionId!, { limit: 100, latest: true }),
     enabled: !!selectedSessionId,
     // Don't poll mid-stream; the stream itself updates the cache.
     refetchInterval: isSending ? false : 10_000,

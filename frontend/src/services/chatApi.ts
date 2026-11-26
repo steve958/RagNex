@@ -67,11 +67,12 @@ export const getChatSession = async (sessionId: string): Promise<ChatSession> =>
 
 export const getMessageHistory = async (
   sessionId: string,
-  params: { offset?: number; limit?: number } = {},
+  params: { offset?: number; limit?: number; latest?: boolean } = {},
 ): Promise<MessageHistoryResponse> => {
   const searchParams = new URLSearchParams();
   if (params.offset != null) searchParams.set('offset', String(params.offset));
   if (params.limit != null) searchParams.set('limit', String(params.limit));
+  if (params.latest) searchParams.set('latest', 'true');
   const query = searchParams.toString();
   const url = `/api/v1/chat/sessions/${sessionId}/messages${query ? `?${query}` : ''}`;
   const res = await apiClient.get<MessageHistoryResponse>(url);

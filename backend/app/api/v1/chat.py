@@ -23,6 +23,8 @@ from backend.app.services.search import SearchHit, SearchService
 
 logger = logging.getLogger(__name__)
 
+_EMPTY_REPLY = "The model returned an empty response"
+
 router = APIRouter(prefix="/chat")
 
 
@@ -240,10 +242,14 @@ async def list_messages(
     session_id: uuid.UUID,
     offset: int = 0,
     limit: int = 50,
+    latest: bool = False,
     ctx=Depends(require_tenant_membership),
     db: AsyncSession = Depends(get_db),
 ) -> MessageHistoryResponse:
     """List messages for a chat session with basic offset/limit pagination.
+
+    With `latest=true`, `offset` is ignored and the newest `limit` messages are returned
+    (still oldest-first); the response's `offset` says where that page starts.
 
     The endpoint is scoped to the current tenant and user; cross-tenant or
     cross-user access is forbidden via the session lookup.
@@ -275,6 +281,8 @@ async def list_messages(
         )
     )
     total = int(res.scalar_one() or 0)
+    if latest:
+        offset = max(0, total - limit)
 
     # Page of messages ordered by created_at ascending
     res = await db.execute(
@@ -407,7 +415,9 @@ async def _prepare_turn(
         )
     )
     for m in history:
-        if m.role == "system":
+        # Empty messages can't be sent (LLMMessage requires content); older rows may
+        # contain one from before empty replies were rejected.
+        if m.role == "system" or not m.content.strip():
             continue
         role = m.role if m.role in {"user", "assistant"} else "user"
         llm_messages.append(LLMMessage(role=role, content=m.content))
@@ -433,6 +443,9 @@ async def send_message(
 
     llm: LLMService = _make_llm_service()
     result: LLMResult = await llm.generate(turn.llm_messages)
+    if not result.content.strip():
+        # Not committed, so the user message is rolled back too and can simply be resent.
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_EMPTY_REPLY)
 
     assistant_msg = ChatMessage(
         tenant_id=tenant_id,
@@ -494,6 +507,10 @@ async def stream_message(
         except Exception as exc:  # noqa: BLE001 - surface any provider failure to the client
             logger.exception("LLM streaming failed for chat session %s", session_id)
             yield _sse("error", {"detail": f"Generation failed: {type(exc).__name__}"})
+            return
+
+        if not "".join(parts).strip():
+            yield _sse("error", {"detail": _EMPTY_REPLY})
             return
 
         SessionLocal = async_sessionmaker(get_engine(), expire_on_commit=False)

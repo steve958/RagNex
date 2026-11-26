@@ -141,9 +141,17 @@ class OpenAICompatibleLLM(LLMService):
     """
 
     def _request(self, messages: list[LLMMessage], *, stream: bool) -> tuple[str, dict, dict]:
-        base_url = (self.cfg.base_url or settings.openai_base_url).rstrip("/")
+        if self.cfg.provider == "vllm":
+            base_url = self.cfg.base_url or settings.vllm_base_url
+            if not base_url:
+                raise ValueError("vllm_base_url is not configured")
+            # Never send the OpenAI key to a self-hosted server.
+            api_key = self.cfg.api_key
+        else:
+            base_url = self.cfg.base_url or settings.openai_base_url
+            api_key = self.cfg.api_key or settings.openai_api_key
+        base_url = base_url.rstrip("/")
 
-        api_key = self.cfg.api_key or settings.openai_api_key
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"

@@ -90,3 +90,38 @@ async def test_stream_http_error_raises(monkeypatch):
     svc = OpenAICompatibleLLM(LLMConfig(provider="openai", model="gpt", base_url="http://oai/v1"))
     with pytest.raises(httpx.HTTPStatusError):
         await _collect(svc)
+
+
+@pytest.mark.asyncio
+async def test_vllm_uses_vllm_base_url_and_never_the_openai_key(monkeypatch):
+    monkeypatch.setattr(llm_module.settings, "vllm_base_url", "http://vllm:8000/v1")
+    monkeypatch.setattr(llm_module.settings, "openai_api_key", "sk-openai-secret")
+    body = 'data: {"choices": [{"delta": {"content": "ok"}}]}\n\ndata: [DONE]\n\n'
+    captured = _install_transport(monkeypatch, lambda req: httpx.Response(200, text=body))
+
+    svc = llm_module.create_llm_service(LLMConfig(provider="vllm", model="m"))
+    assert await _collect(svc) == ["ok"]
+    assert captured[0].url == "http://vllm:8000/v1/chat/completions"
+    assert "Authorization" not in captured[0].headers
+
+
+@pytest.mark.asyncio
+async def test_vllm_without_base_url_fails_instead_of_calling_openai(monkeypatch):
+    monkeypatch.setattr(llm_module.settings, "vllm_base_url", None)
+    captured = _install_transport(monkeypatch, lambda req: httpx.Response(200, text=""))
+
+    svc = llm_module.create_llm_service(LLMConfig(provider="vllm", model="m"))
+    with pytest.raises(ValueError, match="vllm_base_url"):
+        await _collect(svc)
+    assert captured == []
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_still_uses_openai_settings(monkeypatch):
+    monkeypatch.setattr(llm_module.settings, "openai_base_url", "http://oai/v1")
+    monkeypatch.setattr(llm_module.settings, "openai_api_key", "sk-openai")
+    captured = _install_transport(monkeypatch, lambda req: httpx.Response(200, text="data: [DONE]\n\n"))
+
+    await _collect(llm_module.create_llm_service(LLMConfig(provider="openai", model="m")))
+    assert captured[0].url == "http://oai/v1/chat/completions"
+    assert captured[0].headers["Authorization"] == "Bearer sk-openai"
