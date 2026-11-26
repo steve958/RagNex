@@ -1,0 +1,92 @@
+from __future__ import annotations
+
+import json
+
+import httpx
+import pytest
+
+from backend.app.services import llm as llm_module
+from backend.app.services.llm import LLMConfig, LLMError, LLMMessage, OllamaLLM, OpenAICompatibleLLM
+
+MESSAGES = [LLMMessage(role="user", content="hi")]
+
+
+def _install_transport(monkeypatch, handler) -> list[httpx.Request]:
+    """Route the provider's httpx.AsyncClient through a MockTransport; returns captured requests."""
+    captured: list[httpx.Request] = []
+    real_client = httpx.AsyncClient
+
+    def wrapped(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return handler(request)
+
+    def factory(**kwargs):
+        return real_client(transport=httpx.MockTransport(wrapped), **kwargs)
+
+    monkeypatch.setattr(llm_module.httpx, "AsyncClient", factory)
+    return captured
+
+
+async def _collect(service, messages=MESSAGES) -> list[str]:
+    return [f async for f in service.generate_stream(messages)]
+
+
+@pytest.mark.asyncio
+async def test_ollama_stream_parses_ndjson(monkeypatch):
+    lines = [
+        {"message": {"role": "assistant", "content": "Hel"}, "done": False},
+        {"message": {"role": "assistant", "content": "lo"}, "done": False},
+        {"message": {"role": "assistant", "content": ""}, "done": True, "done_reason": "stop"},
+    ]
+    body = "\n".join(json.dumps(x) for x in lines) + "\n"
+    captured = _install_transport(monkeypatch, lambda req: httpx.Response(200, text=body))
+
+    svc = OllamaLLM(LLMConfig(provider="ollama", model="m", base_url="http://ollama"))
+    assert await _collect(svc) == ["Hel", "lo"]
+
+    sent = json.loads(captured[0].content)
+    assert captured[0].url == "http://ollama/api/chat"
+    assert sent["stream"] is True
+    assert sent["messages"] == [{"role": "user", "content": "hi"}]
+
+
+@pytest.mark.asyncio
+async def test_ollama_stream_error_payload_raises(monkeypatch):
+    _install_transport(monkeypatch, lambda req: httpx.Response(200, text='{"error": "model not found"}\n'))
+    svc = OllamaLLM(LLMConfig(provider="ollama", model="m", base_url="http://ollama"))
+    with pytest.raises(LLMError, match="model not found"):
+        await _collect(svc)
+
+
+@pytest.mark.asyncio
+async def test_openai_stream_parses_sse(monkeypatch):
+    def chunk(content):
+        return {"choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}]}
+
+    body = (
+        ": keep-alive comment\n\n"
+        f"data: {json.dumps({'choices': [{'index': 0, 'delta': {'role': 'assistant'}}]})}\n\n"
+        f"data: {json.dumps(chunk('Hi'))}\n\n"
+        f"data: {json.dumps(chunk(' there'))}\n\n"
+        f"data: {json.dumps({'choices': [], 'usage': {'total_tokens': 3}})}\n\n"
+        "data: [DONE]\n\n"
+    )
+    captured = _install_transport(monkeypatch, lambda req: httpx.Response(200, text=body))
+
+    svc = OpenAICompatibleLLM(
+        LLMConfig(provider="openai", model="gpt", base_url="http://oai/v1", api_key="k")
+    )
+    assert await _collect(svc) == ["Hi", " there"]
+
+    req = captured[0]
+    assert req.url == "http://oai/v1/chat/completions"
+    assert req.headers["Authorization"] == "Bearer k"
+    assert json.loads(req.content)["stream"] is True
+
+
+@pytest.mark.asyncio
+async def test_stream_http_error_raises(monkeypatch):
+    _install_transport(monkeypatch, lambda req: httpx.Response(500, text="boom"))
+    svc = OpenAICompatibleLLM(LLMConfig(provider="openai", model="gpt", base_url="http://oai/v1"))
+    with pytest.raises(httpx.HTTPStatusError):
+        await _collect(svc)

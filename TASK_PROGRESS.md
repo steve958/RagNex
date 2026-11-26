@@ -419,7 +419,7 @@ Notes:
 
 ### P4-3: RAG Chat Pipeline
 - [x] Create chat message endpoint
-- [x] Implement RAG pipeline (search -> context -> prompt; HTTP streaming deferred)
+- [x] Implement RAG pipeline (search -> context -> prompt -> stream)
 - [x] Implement citation extraction
 - [x] Store messages with citations
 - [x] Support conversation history context
@@ -428,6 +428,11 @@ Notes:
 - 2026-01-15: Added `POST /api/v1/chat/sessions/{session_id}/messages` in `backend/app/api/v1/chat.py`, which performs hybrid search via `SearchService`, builds context, calls the LLM abstraction, and stores both user and assistant messages with citations.
 - 2026-01-15: Implemented simple citation extraction by attaching top search hits (`chunk_id`, `doc_id`, `kb_id`, `score`) to assistant messages; full text-level citation parsing can be added later.
 - 2026-01-15: Added test `backend/tests/test_chat_messages.py` with patched search + LLM to exercise the RAG pipeline end-to-end without external services.
+- 2026-11-26: Fixed the new user message being sent to the LLM twice.
+- 2026-11-26: Added streaming: `POST /api/v1/chat/sessions/{id}/messages/stream` (SSE events `meta` → `delta`* → `done`, or `error`). Native streaming in `OllamaLLM` (NDJSON) and `OpenAICompatibleLLM` (SSE). Shared turn setup in `_prepare_turn`. The user message is committed before streaming; on generation failure no assistant message is saved. Frontend `ChatPage` renders tokens live via `streamChatMessage` (fetch + `SseParser`). Verified end-to-end against Ollama `gemma2:2b`, directly and through the Vite proxy.
+- 2026-11-26: Fixed `OpenSearchService.ensure_chunks_policy` failing with 409 once the ISM policy exists (it runs on every search and indexing call).
+- 2026-11-26: Frontend now sends `X-Tenant-ID` (resolved after login), the backend has CORS, and Vite proxies `/api` in dev. Before this, tenant-scoped calls from the UI could not succeed.
+- Open: a stream aborted by the client (tab closed) saves no assistant message; partial answers are discarded.
 
 ### P4-4: Message History & Context Management
 - [x] Create message history endpoints

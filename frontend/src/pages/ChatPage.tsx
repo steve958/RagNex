@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { fetchKnowledgeBases, KnowledgeBaseSummary } from '../services/kbApi';
@@ -9,7 +9,8 @@ import {
   deleteChatSession,
   getMessageHistory,
   listChatSessions,
-  sendChatMessage,
+  MessageHistoryResponse,
+  streamChatMessage,
 } from '../services/chatApi';
 import { Chunk } from '../services/chunkApi';
 import { ChunkDetailModal } from '../components/chunks/ChunkDetailModal';
@@ -23,7 +24,14 @@ export const ChatPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
+  // User text shown until the server confirms it was saved (first `meta` event).
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+  // Assistant answer as it streams in; null when no answer is streaming.
+  const [streamingText, setStreamingText] = useState<string | null>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const [selectedChunk, setSelectedChunk] = useState<Chunk | null>(null);
   const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
 
@@ -53,8 +61,27 @@ export const ChatPage: React.FC = () => {
     queryKey: ['chat-history', selectedSessionId],
     queryFn: () => getMessageHistory(selectedSessionId!, { offset: 0, limit: 200 }),
     enabled: !!selectedSessionId,
-    refetchInterval: 10_000,
+    // Don't poll mid-stream; the stream itself updates the cache.
+    refetchInterval: isSending ? false : 10_000,
   });
+
+  // Stop an in-flight answer when switching sessions or leaving the page.
+  useEffect(() => {
+    setStreamError(null);
+    return () => abortRef.current?.abort();
+  }, [selectedSessionId]);
+
+  // Keep the newest content in view as messages arrive and the answer streams.
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView?.({ block: 'end' });
+  }, [historyData, pendingMessage, streamingText]);
+
+  const appendToHistory = (sessionId: string, msg: ChatMessage) => {
+    queryClient.setQueryData<MessageHistoryResponse>(['chat-history', sessionId], (old) => {
+      if (!old || old.items.some((m) => m.id === msg.id)) return old;
+      return { ...old, items: [...old.items, { ...msg, token_estimate: 0 }], total: old.total + 1 };
+    });
+  };
 
   const createSessionMutation = useMutation({
     mutationFn: createChatSession,
@@ -72,21 +99,6 @@ export const ChatPage: React.FC = () => {
     },
   });
 
-  const sendMessageMutation = useMutation({
-    mutationFn: async ({ sessionId, content }: { sessionId: string; content: string }) => {
-      setPendingMessage(content);
-      const res = await sendChatMessage(sessionId, { content });
-      return res;
-    },
-    onSuccess: () => {
-      setPendingMessage(null);
-      queryClient.invalidateQueries({ queryKey: ['chat-history', selectedSessionId] });
-    },
-    onError: () => {
-      setPendingMessage(null);
-    },
-  });
-
   const handleCreateSession = async () => {
     if (!kbList || kbList.length === 0 || !selectedKbId) return;
     await createSessionMutation.mutateAsync({ kb_ids: [selectedKbId] });
@@ -94,10 +106,45 @@ export const ChatPage: React.FC = () => {
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeSession || !input.trim()) return;
+    if (!activeSession || !input.trim() || isSending) return;
+    const sessionId = activeSession.id;
     const content = input.trim();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let userSaved = false;
+
     setInput('');
-    await sendMessageMutation.mutateAsync({ sessionId: activeSession.id, content });
+    setPendingMessage(content);
+    setStreamingText('');
+    setStreamError(null);
+    setIsSending(true);
+    try {
+      const assistant = await streamChatMessage(
+        sessionId,
+        { content },
+        {
+          onMeta: (userMessage) => {
+            userSaved = true;
+            setPendingMessage(null);
+            appendToHistory(sessionId, userMessage);
+          },
+          onDelta: (text) => setStreamingText((prev) => (prev ?? '') + text),
+        },
+        controller.signal,
+      );
+      appendToHistory(sessionId, assistant);
+    } catch (err) {
+      if (controller.signal.aborted) return; // user navigated away; nothing to report
+      setStreamError(err instanceof Error ? err.message : 'Failed to send message');
+      // If the server never saved the message, give the text back so it isn't lost.
+      if (!userSaved) setInput(content);
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+      setPendingMessage(null);
+      setStreamingText(null);
+      setIsSending(false);
+      queryClient.invalidateQueries({ queryKey: ['chat-history', sessionId] });
+    }
   };
 
   const handleDeleteSession = async (session: ChatSession) => {
@@ -260,6 +307,26 @@ export const ChatPage: React.FC = () => {
                   </div>
                 </div>
               )}
+              {streamingText !== null && (
+                <div className="flex justify-start" aria-live="polite">
+                  <div className="max-w-xl rounded bg-slate-800 px-3 py-2 text-sm text-slate-50 shadow-sm">
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <span className="text-[11px] uppercase tracking-wide text-slate-300">Assistant</span>
+                      <span className="text-[10px] text-slate-400">{streamingText ? 'Writing…' : 'Thinking…'}</span>
+                    </div>
+                    <div className="whitespace-pre-wrap break-words text-[13px] leading-relaxed">
+                      {streamingText}
+                      <span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-slate-400 align-middle" />
+                    </div>
+                  </div>
+                </div>
+              )}
+              {streamError && (
+                <p role="alert" className="text-[11px] text-red-400">
+                  {streamError}
+                </p>
+              )}
+              <div ref={messagesEndRef} />
             </div>
             <form onSubmit={handleSend} className="border-t border-slate-800 px-4 py-3">
               <div className="flex items-end gap-2">
@@ -277,10 +344,10 @@ export const ChatPage: React.FC = () => {
                 />
                 <button
                   type="submit"
-                  disabled={!activeSession || !input.trim() || sendMessageMutation.isPending}
+                  disabled={!activeSession || !input.trim() || isSending}
                   className="h-9 rounded bg-sky-600 px-3 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-60"
                 >
-                  {sendMessageMutation.isPending ? 'Sending…' : 'Send'}
+                  {isSending ? 'Sending…' : 'Send'}
                 </button>
               </div>
             </form>

@@ -1,20 +1,27 @@
 from __future__ import annotations
 
+import json
+import logging
 import uuid
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from backend.app.core.db import get_db
+from backend.app.core.db import get_db, get_engine
 from backend.app.core.deps import require_tenant_membership
 from backend.app.models.chat import ChatMessage, ChatSession
 from backend.app.models.knowledge_base import KnowledgeBase
 from backend.app.services.llm import LLMMessage, LLMService, LLMResult, default_llm_config, create_llm_service
 from backend.app.services.search import SearchHit, SearchService
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat")
 
@@ -321,25 +328,31 @@ def _build_citations_from_hits(hits: list[SearchHit], limit: int = 5) -> list[di
     return out
 
 
-@router.post("/sessions/{session_id}/messages", response_model=ChatMessageResponse)
-async def send_message(
+@dataclass
+class _PreparedTurn:
+    session: ChatSession
+    user_msg: ChatMessage
+    llm_messages: list[LLMMessage]
+    citations: list[dict]
+
+
+async def _prepare_turn(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
     session_id: uuid.UUID,
     req: ChatMessageRequest,
-    ctx=Depends(require_tenant_membership),
-    db: AsyncSession = Depends(get_db),
-) -> ChatMessageResponse:
-    tenant_id, user = ctx
+) -> _PreparedTurn:
+    """Shared setup for a chat turn: load session, persist (flush) the user message,
+    retrieve context and build the LLM prompt. Raises HTTPException on invalid input."""
 
-    # Load session + verify ownership/tenant.
     res = await db.execute(
-        select(ChatSession)
-        .where(
+        select(ChatSession).where(
             ChatSession.id == session_id,
             ChatSession.tenant_id == tenant_id,
-            ChatSession.user_id == user.id,
+            ChatSession.user_id == user_id,
             ChatSession.deleted_at.is_(None),
         )
-        .options()
     )
     session = res.scalar_one_or_none()
     if session is None:
@@ -354,7 +367,10 @@ async def send_message(
     # we use the first one. Multi-KB retrieval can be added later.
     kb = session.knowledge_bases[0]
 
-    # Persist user message first.
+    # Load prior turns before adding the new user message; it is appended explicitly
+    # below as the final user turn.
+    history = await _load_history_messages(db, session)
+
     user_msg = ChatMessage(
         tenant_id=tenant_id,
         session_id=session.id,
@@ -373,15 +389,10 @@ async def send_message(
         query=req.content,
         top_k=req.top_k,
     )
-
     context_text = await _build_context_from_hits(hits)
 
-    # Load prior turns; the just-created user message is excluded because it is
-    # appended explicitly below as the final user turn.
-    history = [m for m in await _load_history_messages(db, session) if m.id != user_msg.id]
-
-    # Build LLM messages: system prompt + history + current user message + context.
-    # We include context as an additional system message to keep it clearly separated.
+    # Build LLM messages: system prompt + retrieved context + history + current user message.
+    # Context goes in a separate system message to keep it clearly delimited.
     llm_messages: list[LLMMessage] = []
     if session.system_prompt:
         llm_messages.append(LLMMessage(role="system", content=session.system_prompt))
@@ -395,30 +406,116 @@ async def send_message(
             ),
         )
     )
-    # Add prior turns (excluding any system messages we already added above).
     for m in history:
         if m.role == "system":
             continue
         role = m.role if m.role in {"user", "assistant"} else "user"
         llm_messages.append(LLMMessage(role=role, content=m.content))
-
     llm_messages.append(LLMMessage(role="user", content=req.content))
 
-    # Call LLM.
-    llm: LLMService = _make_llm_service()
-    result: LLMResult = await llm.generate(llm_messages)
+    return _PreparedTurn(
+        session=session,
+        user_msg=user_msg,
+        llm_messages=llm_messages,
+        citations=_build_citations_from_hits(hits),
+    )
 
-    citations = _build_citations_from_hits(hits)
+
+@router.post("/sessions/{session_id}/messages", response_model=ChatMessageResponse)
+async def send_message(
+    session_id: uuid.UUID,
+    req: ChatMessageRequest,
+    ctx=Depends(require_tenant_membership),
+    db: AsyncSession = Depends(get_db),
+) -> ChatMessageResponse:
+    tenant_id, user = ctx
+    turn = await _prepare_turn(db, tenant_id, user.id, session_id, req)
+
+    llm: LLMService = _make_llm_service()
+    result: LLMResult = await llm.generate(turn.llm_messages)
 
     assistant_msg = ChatMessage(
         tenant_id=tenant_id,
-        session_id=session.id,
+        session_id=turn.session.id,
         role="assistant",
         content=result.content,
-        citations=citations,
+        citations=turn.citations,
     )
     db.add(assistant_msg)
     await db.commit()
     await db.refresh(assistant_msg)
 
     return _to_message_response(assistant_msg)
+
+
+def _sse(event: str, data: object) -> str:
+    """Format one server-sent event. JSON-encoding the payload keeps newlines in
+    model output from breaking SSE framing."""
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+@router.post("/sessions/{session_id}/messages/stream")
+async def stream_message(
+    session_id: uuid.UUID,
+    req: ChatMessageRequest,
+    ctx=Depends(require_tenant_membership),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Like `send_message`, but streams the answer as server-sent events.
+
+    Events, in order:
+      - `meta`:  {"user_message": ChatMessage, "citations": [...]}
+      - `delta`: {"text": "<fragment>"}  (repeated)
+      - `done`:  ChatMessage (the persisted assistant message)
+    or `error`: {"detail": "..."} if generation fails part-way (nothing is persisted
+    for the assistant in that case; the user message is kept).
+
+    Validation errors (404/400) are returned as normal HTTP errors before streaming starts.
+    """
+    tenant_id, user = ctx
+    turn = await _prepare_turn(db, tenant_id, user.id, session_id, req)
+
+    # Commit the user message now: the stream outlives this request-scoped work,
+    # and the reply is saved with its own DB session below.
+    await db.commit()
+    await db.refresh(turn.user_msg)
+    user_payload = _to_message_response(turn.user_msg).model_dump(mode="json")
+
+    llm: LLMService = _make_llm_service()
+
+    async def event_stream() -> AsyncIterator[str]:
+        yield _sse("meta", {"user_message": user_payload, "citations": turn.citations})
+
+        parts: list[str] = []
+        try:
+            async for fragment in llm.generate_stream(turn.llm_messages):
+                parts.append(fragment)
+                yield _sse("delta", {"text": fragment})
+        except Exception as exc:  # noqa: BLE001 - surface any provider failure to the client
+            logger.exception("LLM streaming failed for chat session %s", session_id)
+            yield _sse("error", {"detail": f"Generation failed: {type(exc).__name__}"})
+            return
+
+        SessionLocal = async_sessionmaker(get_engine(), expire_on_commit=False)
+        async with SessionLocal() as write_db:
+            assistant_msg = ChatMessage(
+                tenant_id=tenant_id,
+                session_id=session_id,
+                role="assistant",
+                content="".join(parts),
+                citations=turn.citations,
+            )
+            write_db.add(assistant_msg)
+            await write_db.commit()
+            await write_db.refresh(assistant_msg)
+        yield _sse("done", _to_message_response(assistant_msg).model_dump(mode="json"))
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            # Stop reverse proxies (nginx) from buffering the stream.
+            "X-Accel-Buffering": "no",
+        },
+    )
