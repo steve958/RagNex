@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -17,6 +18,8 @@ from backend.app.models.knowledge_base import KnowledgeBase
 from backend.app.services.chunks import ChunkService
 from backend.app.services.parsing import parse_document_binary
 from backend.app.services.storage import StorageService
+
+logger = logging.getLogger(__name__)
 
 
 async def _update_doc(
@@ -223,14 +226,20 @@ def parse_document(self, document_id: str, tenant_id: str, parser_config: dict |
                     doc2.parsed_data = parsed
                     doc2.parse_completed_at = _now()
 
-                    # Queue indexing (P3-3). Best-effort.
+                    # Queue indexing (P3-3). If that fails the document would otherwise sit at
+                    # "done" forever, never searchable, with nothing telling the user why.
                     try:
                         from backend.app.tasks.indexing import index_document
 
                         async_result = index_document.apply_async(args=[str(doc_uuid), str(tenant_uuid)], priority=5)
                         doc2.index_task_id = str(async_result.id)
-                    except Exception:
-                        pass
+                    except Exception as e:  # noqa: BLE001
+                        logger.exception("Could not queue indexing for document %s", doc_uuid)
+                        doc2.status = "failed"
+                        doc2.error_message = (
+                            f"Parsed, but indexing could not be started ({type(e).__name__}). "
+                            "Upload the document again to retry."
+                        )
 
                 await db.commit()
         finally:
