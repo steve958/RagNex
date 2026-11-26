@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import asdict, dataclass
 
@@ -11,6 +12,8 @@ from backend.app.core.config import settings
 from backend.app.core.db import get_engine
 from backend.app.core.redis_client import get_redis
 from backend.app.services.storage import StorageService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -29,8 +32,11 @@ async def _timed(fn, timeout_s: float = 2.0) -> ComponentStatus:
             detail = await fn()
         ok = True
     except Exception as e:
+        # These endpoints are unauthenticated: report the error type only. Messages can
+        # contain hostnames or connection strings; they go to the log instead.
         ok = False
-        detail = f"{type(e).__name__}: {e}"
+        detail = type(e).__name__
+        logger.warning("Health check %s failed: %s", getattr(fn, "__name__", fn), e)
     latency_ms = (time.perf_counter() - start) * 1000.0
     return ComponentStatus(ok=ok, detail=str(detail), latency_ms=round(latency_ms, 3))
 

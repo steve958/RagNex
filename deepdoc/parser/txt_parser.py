@@ -58,6 +58,10 @@ class RAGFlowTxtParser:
         secs = re.split(r"(%s)" % dels, txt)
         for sec in secs:
             if re.match(f"^{dels}$", sec):
+                # RagNex: keep the delimiter (newline, punctuation) with the preceding text.
+                # Upstream drops it, which glues words across lines in spaced languages
+                # ("care\nPanels" -> "carePanels") and breaks keyword search.
+                cks[-1] += sec
                 continue
             add_chunk(sec)
 

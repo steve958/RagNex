@@ -3,12 +3,11 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from celery.result import AsyncResult
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.app.core.celery_app import celery_app
-from backend.app.core.deps import get_current_user
-from backend.app.models.user import User
+from backend.app.core.deps import require_tenant_membership
 
 router = APIRouter()
 
@@ -19,7 +18,6 @@ class TaskStatusResponse(BaseModel):
     ready: bool
     successful: bool
     result: Optional[Any] = None
-    traceback: Optional[str] = None
 
 
 def _json_safe(value: Any) -> Any:
@@ -40,30 +38,20 @@ def _json_safe(value: Any) -> Any:
 
 
 @router.get("/tasks/{task_id}", response_model=TaskStatusResponse)
-async def get_task_status(task_id: str, current_user: User = Depends(get_current_user)) -> TaskStatusResponse:
-    # user currently unused; kept to ensure auth required
-    _ = current_user
-
+async def get_task_status(task_id: str, ctx=Depends(require_tenant_membership)) -> TaskStatusResponse:
+    """Status of a background task. A finished task's result is only shown to its own tenant
+    (our tasks return a dict carrying tenant_id); tracebacks are never returned."""
+    tenant_id, _user = ctx
     res: AsyncResult = celery_app.AsyncResult(task_id)
 
-    payload = TaskStatusResponse(
-        id=task_id,
-        state=res.state,
-        ready=res.ready(),
-        successful=res.successful(),
+    if not res.ready():
+        # Celery reports PENDING for unknown ids too, so this reveals nothing.
+        return TaskStatusResponse(id=task_id, state=res.state, ready=False, successful=False)
+
+    result = res.result if res.successful() else None
+    if not isinstance(result, dict) or result.get("tenant_id") != str(tenant_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return TaskStatusResponse(
+        id=task_id, state=res.state, ready=True, successful=True, result=_json_safe(result)
     )
-
-    if res.ready():
-        try:
-            payload.result = _json_safe(res.result)
-        except Exception:
-            payload.result = None
-
-    # Traceback only makes sense on failures
-    if res.failed():
-        try:
-            payload.traceback = res.traceback
-        except Exception:
-            payload.traceback = None
-
-    return payload

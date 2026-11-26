@@ -10,21 +10,11 @@ from fastapi import UploadFile
 from minio import Minio
 
 from backend.app.core.config import settings
+from backend.app.services.parsing import SUPPORTED_EXTENSIONS
 
 
-DEFAULT_ALLOWED_EXTENSIONS = {
-    ".pdf",
-    ".docx",
-    ".doc",
-    ".txt",
-    ".md",
-    ".html",
-    ".csv",
-    ".xlsx",
-    ".json",
-    ".ppt",
-    ".pptx",
-}
+# Only formats the parser handles (single source of truth in services/parsing.py).
+DEFAULT_ALLOWED_EXTENSIONS = SUPPORTED_EXTENSIONS
 
 
 @dataclass(frozen=True)
@@ -64,7 +54,7 @@ class StorageService:
     @staticmethod
     def validate_file_type(filename: str, content_type: str | None = None) -> None:
         ext = os.path.splitext(filename)[1].lower()
-        if ext and ext not in DEFAULT_ALLOWED_EXTENSIONS:
+        if ext not in DEFAULT_ALLOWED_EXTENSIONS:
             raise ValueError(f"Unsupported file extension: {ext}")
 
         # Best-effort MIME validation if provided.

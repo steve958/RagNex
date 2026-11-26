@@ -3,6 +3,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { uploadDocumentToKnowledgeBase } from '../../services/documentApi';
 
+export const SUPPORTED_UPLOAD_TYPES =
+  '.pdf,.docx,.xlsx,.csv,.pptx,.txt,.md,.markdown,.html,.htm,.json,.jsonl';
+
 interface Props {
   kbId: string;
 }
@@ -42,6 +45,10 @@ export const DocumentUploadForm: React.FC<Props> = ({ kbId }) => {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <input
           type="file"
+          // Keep in step with SUPPORTED_EXTENSIONS in backend/app/services/parsing.py; the
+          // server checks too, this just stops the picker offering files that would be refused.
+          accept={SUPPORTED_UPLOAD_TYPES}
+          aria-label="Document file"
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           className="block w-full text-xs text-slate-200 file:mr-3 file:rounded file:border-0 file:bg-slate-800 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-100 hover:file:bg-slate-700"
         />

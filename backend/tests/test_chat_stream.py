@@ -103,7 +103,7 @@ def _patch_llm(monkeypatch, chat_module, fragments: list[str], fail_after: int |
                 yield f
 
     monkeypatch.setattr(
-        chat_module, "_make_llm_service", lambda: StreamingLLM(chat_module.default_llm_config()), raising=True
+        chat_module, "_make_llm_service", lambda cfg: StreamingLLM(cfg), raising=True
     )
     return seen_prompts
 
@@ -255,7 +255,7 @@ async def test_answer_is_saved_even_if_client_disconnects_mid_stream(monkeypatch
             await release.wait()  # the client is gone by the time we continue
             yield "second half."
 
-    monkeypatch.setattr(chat_module, "_make_llm_service", lambda: SlowLLM(chat_module.default_llm_config()))
+    monkeypatch.setattr(chat_module, "_make_llm_service", lambda cfg: SlowLLM(cfg))
 
     app = create_app()
     transport = httpx.ASGITransport(app=app)

@@ -58,7 +58,7 @@ def pipeline(monkeypatch):
         async def generate_stream(self, messages):
             yield "answer"
 
-    monkeypatch.setattr(chat_module, "_make_llm_service", lambda: EchoLLM(chat_module.default_llm_config()))
+    monkeypatch.setattr(chat_module, "_make_llm_service", lambda cfg: EchoLLM(cfg))
     return queue
 
 
@@ -276,5 +276,29 @@ async def test_purge_refuses_a_live_document(pipeline):
         result = (await asyncio.to_thread(purge_document.apply, args=[doc, str(api.tenant_id)])).get()
         assert result["status"] == "skipped"
         assert _index_count(api.tenant_id, doc) > 0
+
+    await _with_api(scenario)
+
+
+@pytest.mark.asyncio
+async def test_document_is_marked_failed_if_indexing_cannot_be_queued(pipeline, monkeypatch):
+    """Regression: a failure to queue indexing used to be swallowed, leaving the document
+    at "done" forever: never searchable, with no error shown."""
+
+    def broker_down(*_args, **_kwargs):
+        raise ConnectionError("redis unavailable")
+
+    async def scenario(api: Api):
+        kb = await api.create_kb("kb")
+        doc = await api.upload(kb, "solar.md", SOLAR_DOC)
+        monkeypatch.setattr(index_document, "apply_async", broker_down)
+
+        results = await pipeline.drain()
+        assert [r["task"].rsplit(".", 1)[-1] for r in results] == ["parse_document"]
+
+        r = await api.client.get(f"/api/v1/documents/{doc}", headers=api.headers)
+        body = r.json()
+        assert body["status"] == "failed"
+        assert "indexing could not be started" in body["error_message"]
 
     await _with_api(scenario)

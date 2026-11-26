@@ -51,8 +51,9 @@ COPY docker/backend-entrypoint.sh /usr/local/bin/ragnex
 # the app, the Celery tasks or any document parser can't be imported. DeepDoc disables a
 # parser silently when a dependency is missing, which would otherwise only show up as
 # failed uploads in production.
+# (The JWT_SECRET here exists only for this import check and is not kept in the image.)
 RUN sed -i 's/\r$//' /usr/local/bin/ragnex && chmod 0755 /usr/local/bin/ragnex \
- && python -c "\
+ && JWT_SECRET=build-time-import-check-only-not-a-real-secret python -c "\
 import backend.app.main; \
 from backend.app.core.celery_app import celery_app; \
 celery_app.loader.import_default_modules(); \

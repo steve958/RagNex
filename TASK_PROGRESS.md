@@ -133,7 +133,7 @@ Notes:
 - [x] Implement API key authentication
   - [x] Generate secure API keys
   - [x] Hash keys before storage
-  - [x] Key scoping (read/write permissions)
+  - [x] Key scoping (read/write permissions). Only stored until 2026-11-26, when enforcement was added (see P6-4).
 - [x] Add rate limiting middleware (slowapi)
 - [x] Implement tenant context injection
 
@@ -395,10 +395,16 @@ Notes:
 - [x] OpenAI
 - [ ] Anthropic
 - [ ] DeepSeek
-- [ ] Create LLM configuration per tenant
-- [ ] Add token counting and limit enforcement
+- [x] Create LLM configuration per tenant (and per-tenant embedding settings)
+- [x] Add token counting and limit enforcement (prompt budget; see P4-4)
 
 Notes:
+- 2026-11-26: Per-tenant model settings. `GET/PUT /api/v1/tenants/{id}/model-settings`: members read, owners change. Migration `0005` adds `tenants.llm_config`; embeddings use the existing `embedding_config`. Chat resolves the tenant's effective LLM config each turn, for both the client and the prompt budget. Rules are in `services/model_settings.py`:
+  - a tenant `base_url` must be on the `TENANT_MODEL_BASE_URLS` allowlist (empty by default) to prevent SSRF;
+  - API keys are write-only, and switching to OpenAI away from the server default requires the tenant's own key, so the operator's key isn't used;
+  - a new embedding model is test-called and must match `EMBEDDING_DIMENSION`, and it can't change while the tenant has indexed documents.
+  
+  The Settings page's LLM and Embeddings tabs are wired up (read-only for members). API keys are stored unencrypted in Postgres; encrypting them needs a key-management decision.
 - 2026-01-15: Added `backend/app/services/llm.py` with `LLMService` abstraction, `OllamaLLM` and `OpenAICompatibleLLM`, plus `LLMConfig`/`LLMMessage`/`LLMResult` and a `create_llm_service` factory.
 - 2026-01-15: Introduced LLM defaults in `backend/app/core/config.py` (`llm_provider`, `llm_model`, `llm_temperature`, `llm_max_tokens`) and a `default_llm_config()` helper.
 - 2026-01-15: LiteLLM integration and per-tenant LLM configuration remain TODOs for a follow-up task.
@@ -544,7 +550,16 @@ Notes:
 - [ ] Backend unit tests (target: 80% coverage)
 - [x] Frontend unit tests
   - 2026-11-26: Tooling upgraded: vite 5→8, vitest 1→5, @vitejs/plugin-react 4→6, jsdom 24→29, Testing Library react 14→16 and jest-dom 6→8. react-router-dom 6→7.18 fixes a runtime vulnerability. `npm audit`: 0 vulnerabilities (was 7). React 18, Tailwind 3 and TypeScript 5 are unchanged; each of those upgrades is its own migration. The Windows lowercase-drive-letter bug ("failed to find the runner") persists in vitest 5. `npm test` now runs it through `frontend/scripts/vitest.mjs`, which starts Vitest from the canonical path.
-- [ ] DeepDoc parser tests
+- [x] DeepDoc parser tests
+  - 2026-11-26: `backend/tests/test_parsing_formats.py` runs every supported format through the worker's parse and chunk path. Sample files are built in code (`tests/format_samples.py`), and DOCX, XLSX, CSV and PPTX are also tested end to end (upload → worker → index → search). The tests found:
+    - DOCX and XLSX were called with the wrong signature and failed every time;
+    - CSV and `.doc` were accepted at upload but had no parser;
+    - PPTX had a parser but no route and was refused at upload;
+    - TXT glued words across lines and dropped punctuation (an upstream RAGFlow behaviour meant for Chinese);
+    - spreadsheet rows used a full-width "：";
+    - files with no extension and empty files were accepted and failed later.
+
+    All fixed. `services/parsing.py` `SUPPORTED_EXTENSIONS` is now the single list used by both upload checks and mirrored by the upload picker; a test keeps them in step. Legacy `.doc`, `.ppt` and `.xls` are refused at upload with the supported list. PDF is tested on a text PDF only (OCR for scanned PDFs needs the vision stack, which isn't in the image).
 - [ ] Run coverage reports in CI
 
 ### P6-2: Integration Tests
@@ -567,11 +582,22 @@ Notes:
 - [ ] Document performance characteristics
 
 ### P6-4: Security Testing
-- [ ] Run SAST tools (Bandit, Semgrep)
-- [ ] Test authentication
-- [ ] Test authorization
-- [ ] Test input validation
-- [ ] Review secret management
+- [x] Run SAST tools (Bandit, Semgrep) and dependency audits (pip-audit, npm audit)
+- [x] Test authentication
+- [x] Test authorization
+- [ ] Test input validation (partly: upload limits and model-settings validation are tested; no fuzzing)
+- [x] Review secret management
+
+Notes (2026-11-26 scan):
+- Bandit, `backend/app`: 0 medium or high. The 8 low findings left are deliberate best-effort handlers; the 2 hardcoded-password hits were token-type labels. DeepDoc's 5 medium findings are all in code the default image doesn't run (vision/OCR, the TCADP parser); its `eval()` only parses a constant from model config.
+- Semgrep (python, typescript, react, dockerfile, secrets rule sets; 103 files): 0 findings.
+- pip-audit: the shipped image has no known vulnerabilities. The local dev venv was stale (24 vulnerable packages, e.g. pypdf, Pillow, PyJWT, Starlette), and the tests had never run against the newer versions the image ships. Upgraded the venv; all tests pass. `npm audit`: 0.
+- Fixed, high: API keys acted as a full login. They worked in every tenant of their user, their scopes weren't enforced, and they could create keys, delete tenants and change members and model settings. Now a key works only in its own tenant; `read` allows GET and search, and `write` allows everything. Account-management endpoints require a signed-in user (`require_session_user`). Tests: `test_api_key_access.py`.
+- Fixed, medium: `JWT_SECRET` defaulted to the public value `change-me`, and `.env.example` told people to use it. The app now refuses to start without a random secret of 32+ bytes.
+- Fixed, medium: `GET /tasks/{id}` returned any tenant's task results and tracebacks. It now requires tenant membership, shows only the caller's tenant's results, and never returns tracebacks.
+- Fixed, medium (reliability): a failure to queue indexing was swallowed, leaving the document "done" but never searchable. It's now marked failed with a message.
+- Fixed, low: unauthenticated health checks returned raw exception messages; they now return only the error type and log the rest.
+- Open: Python dependencies have only lower bounds and no lockfile, so each image build can pick up different versions. Tenant provider API keys are stored unencrypted. No input fuzzing yet.
 
 ---
 

@@ -15,8 +15,11 @@ class Tenant(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     owner_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
-    # Embedding configuration (P3-2). If empty, server defaults are used.
+    # Per-tenant model overrides; keys not present fall back to server settings.
+    # See backend/app/services/model_settings.py. May contain provider API keys, which are
+    # never returned by the API.
     embedding_config: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    llm_config: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
 
     memberships: Mapped[list["TenantMembership"]] = relationship(
         back_populates="tenant", cascade="all, delete-orphan"

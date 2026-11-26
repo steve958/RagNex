@@ -39,6 +39,7 @@ x-backend: &backend
     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
     VLLM_BASE_URL: ${VLLM_BASE_URL:-}
+    TENANT_MODEL_BASE_URLS: ${TENANT_MODEL_BASE_URLS:-[]}
   extra_hosts:
     # Lets containers reach services on the Docker host (e.g. Ollama) on Linux too.
     - "host.docker.internal:host-gateway"

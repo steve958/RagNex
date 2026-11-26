@@ -24,7 +24,7 @@ def _patch_generate(monkeypatch, chat_module, reply: str) -> list:
             return chat_module.LLMResult(content=reply)
 
     monkeypatch.setattr(
-        chat_module, "_make_llm_service", lambda: FixedLLM(chat_module.default_llm_config()), raising=True
+        chat_module, "_make_llm_service", lambda cfg: FixedLLM(cfg), raising=True
     )
     return prompts
 

@@ -13,6 +13,7 @@ from backend.app.core.db import get_db
 from backend.app.core.deps import require_tenant_membership
 from backend.app.models.document import Document
 from backend.app.models.knowledge_base import KnowledgeBase
+from backend.app.services.parsing import SUPPORTED_EXTENSIONS
 from backend.app.services.storage import StorageService
 from backend.app.tasks.parsing import parse_document
 from backend.app.tasks.purge import enqueue_purges
@@ -52,7 +53,6 @@ class DocumentListResponse(BaseModel):
     items: list[DocumentStatusResponse]
 
 
-_ALLOWED_EXTS = {".pdf", ".docx", ".doc", ".txt", ".md", ".html", ".csv", ".xlsx", ".json"}
 
 
 @router.get("/documents/{doc_id}", response_model=DocumentStatusResponse)
@@ -181,13 +181,18 @@ async def upload_document(
 
     filename = file.filename or "upload"
     ext = os.path.splitext(filename)[1].lower()
-    if ext and ext not in _ALLOWED_EXTS:
-        raise HTTPException(status_code=400, detail=f"Unsupported file extension: {ext}")
+    if ext not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type {ext or '(no extension)'}. Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}",
+        )
 
     size_bytes = _get_size_bytes(file)
     max_bytes = int(settings.max_upload_size_mb) * 1024 * 1024
     if size_bytes is not None and size_bytes > max_bytes:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large")
+    if size_bytes == 0:
+        raise HTTPException(status_code=400, detail="The file is empty")
 
     # Create DB row first (status pending), then upload, then commit
     doc = Document(

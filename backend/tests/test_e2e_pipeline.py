@@ -148,7 +148,7 @@ async def test_upload_to_streamed_answer(monkeypatch):
             for fragment in ["Clean them ", "twice a year."]:
                 yield fragment
 
-    monkeypatch.setattr(chat_module, "_make_llm_service", lambda: RecordingLLM(chat_module.default_llm_config()))
+    monkeypatch.setattr(chat_module, "_make_llm_service", lambda cfg: RecordingLLM(cfg))
 
     tenant_id: uuid.UUID | None = None
     transport = httpx.ASGITransport(app=create_app())

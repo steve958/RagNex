@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import os
+import secrets
 from pathlib import Path
 
-import pytest
-from alembic import command
-from alembic.config import Config
+# Tests sign tokens with their own random secret, independent of the developer's .env.
+# Set before any backend module is imported (settings are read at import time); environment
+# variables take precedence over the .env file.
+os.environ["JWT_SECRET"] = secrets.token_hex(32)
+
+import pytest  # noqa: E402
+from alembic import command  # noqa: E402
+from alembic.config import Config  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

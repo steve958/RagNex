@@ -3,6 +3,13 @@ from __future__ import annotations
 import os
 from typing import Any
 
+# Every extension parse_document_binary can handle. Uploads accept exactly these (see
+# api/v1/documents.py and services/storage.py), so a file is never accepted only to fail
+# in parsing. Legacy binary Office formats (.doc, .ppt, .xls) have no parser.
+SUPPORTED_EXTENSIONS = frozenset(
+    {".pdf", ".txt", ".md", ".markdown", ".html", ".htm", ".json", ".jsonl", ".docx", ".xlsx", ".csv", ".pptx"}
+)
+
 
 def parse_document_binary(filename: str, binary: bytes, parser_config: dict | None = None) -> dict[str, Any]:
     """Parse a document binary into normalized sections/tables.
@@ -21,6 +28,11 @@ def parse_document_binary(filename: str, binary: bytes, parser_config: dict | No
 
     cfg = parser_config or {}
     ext = os.path.splitext(filename)[1].lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        raise ValueError(f"Unsupported file type: {ext or '(no extension)'}")
+    if not binary or not binary.strip():
+        # Parsers fail on empty input in confusing ways (e.g. trying to open a file path).
+        raise ValueError("The file is empty")
 
     sections: list[str] = []
     tables: list[Any] = []
@@ -66,15 +78,29 @@ def parse_document_binary(filename: str, binary: bytes, parser_config: dict | No
     elif ext in {".docx"}:
         if deepdoc_parser.DocxParser is None:
             raise RuntimeError("DocxParser not available")
-        # DocxParser returns a list of (text, style) tuples.
-        sec_pairs = deepdoc_parser.DocxParser()(None, binary=binary)
+        # Returns ([(paragraph text, style), ...], [table, ...]); takes the bytes positionally.
+        sec_pairs, docx_tables = deepdoc_parser.DocxParser()(binary)
         sections = [t for (t, _style) in sec_pairs]
+        for table in docx_tables:
+            text = "\n".join(map(str, table)) if isinstance(table, (list, tuple)) else str(table)
+            if text.strip():
+                tables.append(text)
 
-    elif ext in {".xlsx"}:
+    elif ext in {".xlsx", ".csv"}:
         if deepdoc_parser.ExcelParser is None:
             raise RuntimeError("ExcelParser not available")
-        sec_pairs = deepdoc_parser.ExcelParser()(None, binary=binary)
-        sections = [t for (t, _style) in sec_pairs]
+        # One "header: value; ..." line per row; non-spreadsheet input is read as CSV.
+        sections = list(deepdoc_parser.ExcelParser()(binary))
+
+    elif ext in {".pptx"}:
+        if deepdoc_parser.PptParser is None:
+            raise RuntimeError("PptParser not available")
+        # One section per slide.
+        sections = list(
+            deepdoc_parser.PptParser()(
+                binary, int(cfg.get("from_page", 0)), int(cfg.get("to_page", 100000))
+            )
+        )
 
     else:
         raise ValueError(f"Unsupported file type: {ext}")
