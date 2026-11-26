@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,8 +29,9 @@ class Settings(BaseSettings):
     celery_task_always_eager: bool = False
     celery_task_eager_propagates: bool = True
 
-    # Auth
-    jwt_secret: str = "change-me"
+    # Auth. JWT_SECRET signs every login token: anyone who knows or guesses it can log in as
+    # any user. It has no default and must be at least 32 bytes (checked below).
+    jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
     access_token_expires_minutes: int = 30
     refresh_token_expires_days: int = 14
@@ -84,5 +86,20 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     s3_secure: bool = False
 
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def _require_strong_jwt_secret(cls, value: str) -> str:
+        # HS256 keys shorter than the hash output (32 bytes) can be brute-forced offline from
+        # any issued token (RFC 7518 §3.2). "change-me" was the old public default.
+        if value in _KNOWN_WEAK_SECRETS or len(value.encode()) < 32:
+            raise ValueError(
+                "JWT_SECRET must be set to a random value of at least 32 bytes "
+                "(generate one with: python -c \"import secrets; print(secrets.token_hex(32))\")."
+            )
+        return value
+
+
+_KNOWN_WEAK_SECRETS = {"", "change-me", "changeme", "secret"}
 
 settings = Settings()
