@@ -668,7 +668,7 @@ Notes:
 - 2026-11-26: `docs/configuration.md` (every setting, checked against the code) and `docs/deployment.md` (secrets, rotation, TLS proxy, backups, go-live checklist). Replaces `docs/environment.md`.
 - Fixed while documenting: `.env.example` used `MAX_UPLOAD_MB` and `S3_BUCKET`, neither of which is read (the setting is `MAX_UPLOAD_SIZE_MB`; buckets are per tenant); removed the unused `API_KEY_HEADER` and the `TENANT_HEADER` setting (changing it broke the web app); `OPENSEARCH_VERIFY_CERTS` now defaults to on; an `https://` S3 endpoint now uses TLS without also setting `S3_SECURE`; prod compose passes through `LOG_LEVEL`, `LLM_TEMPERATURE`, token lifetimes and embedding tuning.
 - Security fix: behind nginx, clients could pick their own IP with `X-Forwarded-For` (nginx appended to it, and the API trusted the first entry), bypassing per-IP login rate limits. nginx now replaces the header with the client IP, trusting a client-supplied value only from `RAGNEX_TRUSTED_PROXY`. Verified against the nginx image.
-- Open: sign-up is open to anyone who can reach the site; there is no setting to close it. Rate limits are per API process (in-memory), not shared.
+- 2026-11-26: Sign-up can be closed (`REGISTRATION_ENABLED`) or limited to email domains (`REGISTRATION_EMAIL_DOMAINS`); operators create accounts with `python -m backend.app.services.accounts create-user` (own workspace, or `--workspace` to join one). The web app hides sign-up when closed (`GET /api/v1/auth/registration`). Rate-limit counts moved to Redis, so they hold across API processes and restarts, falling back to in-memory if Redis is unreachable.
 
 ### P7-4: User Documentation
 - [ ] Create getting started guide

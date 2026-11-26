@@ -8,7 +8,17 @@ from slowapi.util import get_remote_address
 from slowapi.extension import _rate_limit_exceeded_handler
 
 
-limiter = Limiter(key_func=get_remote_address)
+from backend.app.core.config import settings
+
+# Counts live in Redis so every API process and restart shares them; in process memory,
+# each of N API workers would allow its own full quota. If Redis is unreachable, limits are
+# counted in memory until it's back, rather than failing every rate-limited request.
+limiter = Limiter(
+    key_func=get_remote_address,
+    storage_uri=settings.redis_url,
+    key_prefix="ragnex",
+    in_memory_fallback_enabled=True,
+)
 
 
 def setup_rate_limiting(app: FastAPI) -> None:

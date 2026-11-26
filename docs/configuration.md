@@ -73,7 +73,7 @@ use your own services.
 |---|---|---|---|
 | `DATABASE_URL` | `postgresql+asyncpg://ragnex:ragnex@localhost:5432/ragnex` | built from `POSTGRES_*` | Must use the `postgresql+asyncpg://` scheme. |
 | `POSTGRES_USER`, `POSTGRES_DB` | `ragnex` | yes | Used by the Postgres container and to build `DATABASE_URL`. Like the password, they only apply when the volume is first created. |
-| `REDIS_URL` | `redis://localhost:6379/0` | set to the bundled Redis | Task queue, task results and the embedding cache. |
+| `REDIS_URL` | `redis://localhost:6379/0` | set to the bundled Redis | Task queue, task results, the embedding cache and rate-limit counts. |
 | `OPENSEARCH_URL` | `http://localhost:9200` | set to the bundled OpenSearch | Search engine. Elasticsearch isn't supported: RagNex uses OpenSearch's k-NN and index lifecycle features. |
 | `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD` | empty | no | Basic auth, for a cluster with security enabled. |
 | `OPENSEARCH_VERIFY_CERTS` | `true` | no | Check the server certificate on `https://` URLs. Turn off only for a test cluster with a self-signed certificate. |
@@ -91,6 +91,8 @@ use your own services.
 |---|---|---|---|
 | `ACCESS_TOKEN_EXPIRES_MINUTES` | `30` | yes | How long a login token lasts. The web app renews it automatically. |
 | `REFRESH_TOKEN_EXPIRES_DAYS` | `14` | yes | How long a user stays signed in without logging in again. |
+| `REGISTRATION_ENABLED` | `true` | yes | Whether anyone who can reach the site can create an account (each gets a workspace of their own). When off, accounts are created with the `create-user` command ([deployment.md](deployment.md#creating-accounts)). Existing users can always log in. |
+| `REGISTRATION_EMAIL_DOMAINS` | `[]` | yes | When set, only addresses at exactly these domains can sign up, as a JSON list (`["example.com"]`). Subdomains aren't included: list them separately. Ignored when sign-up is off. |
 | `JWT_ALGORITHM` | `HS256` | no | `HS256`, `HS384` or `HS512`. Algorithms using key pairs (`RS256` and similar) don't work with a shared secret. |
 | `CORS_ORIGINS` | `["http://localhost:5173"]` | yes (default `[]`) | Browser origins allowed to call the API from another site, as a JSON list. Not needed when the web app is served through the bundled nginx or the Vite dev proxy. |
 
@@ -108,7 +110,7 @@ an API key.
 | Variable | Default | Prod compose | Notes |
 |---|---|---|---|
 | `LOG_LEVEL` | `INFO` | yes | `DEBUG`, `INFO`, `WARNING` or `ERROR`. Logs are JSON lines on stdout. |
-| `API_WORKERS` | `2` | yes | API processes. Rate limits (20 logins and 10 registrations a minute per address) are counted per process, so with 2 processes an address gets twice that. |
+| `API_WORKERS` | `2` | yes | API processes. Rate limits (20 logins and 10 registrations a minute per address) are counted in Redis, so they hold however many processes run. If Redis is unreachable, each process counts on its own until it's back. |
 | `WORKER_CONCURRENCY` | `2` | yes | Documents processed in parallel by the worker container. Parsing PDFs is CPU- and memory-heavy: raise it with care. |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` (prod compose: `*`) | set by compose | Which peers the API trusts for the client IP header. Compose trusts all, which is safe only because the API port is internal and nginx rewrites that header. |
 | `PORT` | `8000` | no | API port inside its container. |

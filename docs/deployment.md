@@ -110,6 +110,25 @@ pick its own address and get around the rate limits.
 If the proxy runs on the same machine, also set `RAGNEX_HTTP_PORT=127.0.0.1:8080` so
 RagNex accepts connections only through the proxy.
 
+## Creating accounts
+
+With sign-up off (`REGISTRATION_ENABLED=false`), create accounts with:
+
+```bash
+# A user with a workspace of their own (as with sign-up):
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec api   python -m backend.app.services.accounts create-user alice@example.com
+
+# A user who joins an existing workspace instead (role: member or owner):
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec api   python -m backend.app.services.accounts create-user bob@example.com --workspace WORKSPACE_ID --role member
+```
+
+It asks for the password twice. For scripts, pass `--password-stdin` and pipe the password
+in (use `exec -T` then). Tell the user their password through a separate channel.
+
+To find a workspace's ID, list them all with
+`python -m backend.app.services.accounts list-workspaces` (the same way, through
+`docker compose ... exec api`).
+
 ## Backups
 
 | Store | Holds | Back up? |
@@ -117,7 +136,7 @@ RagNex accepts connections only through the proxy.
 | Postgres (`pgdata`) | Users, workspaces, document records, chats, settings, workspace API keys | **Yes.** Everything else hangs off it. |
 | MinIO (`miniodata`) | The uploaded original files | **Yes.** They can't be recreated. |
 | OpenSearch (`opensearchdata`) | Search index: document chunks and their vectors | Recommended. It can be rebuilt by reprocessing every document, but that re-runs parsing and embedding, which is slow for large collections. |
-| Redis (`redisdata`) | Task queue and embedding cache | No. Losing it loses only queued work: documents being processed at that moment need to be reprocessed. |
+| Redis (`redisdata`) | Task queue, embedding cache and rate-limit counts | No. Losing it loses only queued work: documents being processed at that moment need to be reprocessed. |
 
 Back up Postgres and MinIO at about the same time, so document records and files match.
 For Postgres, `pg_dump` from the `postgres` container works while RagNex is running:
@@ -166,10 +185,10 @@ Postgres first: migrations can't always be undone.
 
 **Decide who can sign up**
 
-- [ ] Anyone who can reach the site can create an account, and each account gets its own
-      workspace that uses your models and storage. There is no setting to turn sign-up off
-      yet. If the site shouldn't be open to everyone, restrict access at the proxy (for
-      example a VPN, an IP allowlist or single sign-on in front of it).
+- [ ] By default anyone who can reach the site can create an account, and each account gets
+      its own workspace that uses your models and storage. Either limit sign-up to your
+      email domains (`REGISTRATION_EMAIL_DOMAINS`), or turn it off
+      (`REGISTRATION_ENABLED=false`) and [create accounts yourself](#creating-accounts).
 
 **After the first start**
 

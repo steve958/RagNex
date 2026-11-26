@@ -7,12 +7,13 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.core.config import settings
 from backend.app.core.db import get_db
 from backend.app.core.deps import get_current_user
 from backend.app.core.validation import NewPassword, Password
 from backend.app.core.security import PasswordHasher, TokenService
-from backend.app.models.tenant import Tenant
-from backend.app.models.user import TenantMembership, User
+from backend.app.models.user import User
+from backend.app.services.accounts import AccountError, create_account, registration_allows
 
 from backend.app.core.rate_limit import limiter
 
@@ -44,26 +45,32 @@ class UserResponse(BaseModel):
     email: str
 
 
+class RegistrationInfo(BaseModel):
+    enabled: bool
+    # Empty = any address (when enabled).
+    email_domains: list[str]
+
+
+@router.get("/registration", response_model=RegistrationInfo)
+async def registration_info() -> RegistrationInfo:
+    """Whether self sign-up is open, so the web app can show or hide it. Public."""
+    return RegistrationInfo(
+        enabled=settings.registration_enabled,
+        email_domains=[d.strip().lower().lstrip("@") for d in settings.registration_email_domains if d.strip()],
+    )
+
+
 @router.post("/register", response_model=TokenResponse)
 @limiter.limit("10/minute")
 async def register(request: Request, req: RegisterRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
-    existing = await db.execute(select(User).where(User.email == req.email))
-    if existing.scalar_one_or_none() is not None:
-        raise HTTPException(status_code=400, detail="Email already registered")
-
-    user = User(email=req.email, password_hash=password_hasher.hash(req.password))
-    db.add(user)
-    await db.flush()
-
-    # Create a default tenant for the new user.
-    tenant = Tenant(name=f"{req.email}'s tenant", owner_user_id=user.id)
-    db.add(tenant)
-    await db.flush()
-
-    membership = TenantMembership(tenant_id=tenant.id, user_id=user.id, role="owner")
-    db.add(membership)
-
-    await db.commit()
+    if not settings.registration_enabled:
+        raise HTTPException(status_code=403, detail="Sign-up is closed. Ask an administrator for an account.")
+    if not registration_allows(req.email):
+        raise HTTPException(status_code=403, detail="Sign-up isn't open to this email domain.")
+    try:
+        user = await create_account(db, req.email, req.password)
+    except AccountError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     access = token_service.create_access_token(user_id=user.id)
     refresh = token_service.create_refresh_token(user_id=user.id)
