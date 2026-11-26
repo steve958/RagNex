@@ -1,0 +1,28 @@
+# Build context is the repo root; only backend/, deepdoc/, frontend/ and docker/ are used.
+
+# Secrets and local environments
+.env
+.env.*
+**/.venv
+**/venv
+
+# Dependencies and build output (node_modules from Windows would also be the wrong platform)
+**/node_modules
+frontend/dist
+
+# Caches and VCS
+.git
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+
+# Not needed in images
+backend/tests
+deepdoc/tests
+docs
+scripts
+*.md
+!frontend/**/*.md
+Continue_Session.md.txt

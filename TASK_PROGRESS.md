@@ -577,14 +577,20 @@ Notes:
 ## Phase 7: Deployment & Documentation
 
 ### P7-1: Docker Production Images
-- [ ] Create production Dockerfiles
-  - [ ] `Dockerfile.backend`
-  - [ ] `Dockerfile.frontend`
-  - [ ] `Dockerfile.worker`
-- [ ] Optimize image sizes
-- [ ] Create `docker-compose.prod.yml`
+- [x] Create production Dockerfiles
+  - [x] `docker/backend.Dockerfile` (API, worker and migrations share one image; the command picks the role)
+  - [x] `docker/frontend.Dockerfile` (nginx serving the app and proxying `/api`)
+  - [x] Worker: same image as the backend, `worker` command
+- [x] Optimize image sizes (multi-stage builds: backend 557 MB, frontend 49 MB)
+- [x] Create `docker-compose.prod.yml`
 - [ ] Set up image registry
-- [ ] Create image tagging strategy
+- [ ] Create image tagging strategy (images are tagged `${RAGNEX_VERSION:-latest}`; no registry or CI yet)
+
+Notes:
+- 2026-11-26: The backend image runs as a non-root user and fails the build if the app, the Celery tasks or any document parser can't be imported (DeepDoc silently disables parsers whose dependencies are missing).
+- 2026-11-26: `docker-compose.prod.yml` publishes only nginx. A one-shot `migrate` service runs before `api`/`worker`. Secrets have no defaults, so compose refuses to start without them. The API trusts `X-Forwarded-For` so rate limits apply per client, not to nginx. nginx disables buffering on `/api` so chat answers stream.
+- 2026-11-26: `backend/pyproject.toml` was missing runtime dependencies (PyJWT, passlib, argon2-cffi, email-validator, slowapi, greenlet via `sqlalchemy[asyncio]`) and couldn't be installed (`pip install -e` failed on the flat layout). Both fixed.
+- 2026-11-26: Verified on a local stack through nginx: upload → worker parse → indexing reaching host Ollama. Search and chat need `bge-m3` pulled, so they weren't exercised in this stack.
 
 ### P7-2: Kubernetes Manifests
 - [ ] Create Kubernetes manifests
