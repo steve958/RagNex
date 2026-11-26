@@ -38,12 +38,19 @@ async def test_indexing_task_indexes_chunks_and_updates_document(monkeypatch):
     monkeypatch.setattr("backend.app.tasks.indexing.create_embedding_service", lambda cfg, cache=None: _FakeEmbedder())
 
     captured = {"actions": None}
+    calls: list[str] = []
 
     def fake_bulk(client, actions, raise_on_error=False, raise_on_exception=False, **_kwargs):
+        calls.append("bulk")
         captured["actions"] = list(actions)
         return (len(captured["actions"]), [])
 
+    def fake_delete_chunks(self, tenant_id, document_id):
+        calls.append("delete_old")
+        return 0
+
     monkeypatch.setattr("backend.app.tasks.indexing.bulk", fake_bulk)
+    monkeypatch.setattr("backend.app.tasks.indexing.OpenSearchService.delete_document_chunks", fake_delete_chunks)
 
     monkeypatch.setattr("backend.app.tasks.indexing.OpenSearchService.ensure_index", lambda self, tenant_id: "chunks_test")
     monkeypatch.setattr("backend.app.tasks.indexing.OpenSearchService._client", lambda self: object())
@@ -80,6 +87,8 @@ async def test_indexing_task_indexes_chunks_and_updates_document(monkeypatch):
     await anyio.to_thread.run_sync(lambda: index_document.run(str(doc_id), str(tenant_id)))
 
     assert captured["actions"] is not None
+    # The document's previous entries are removed before the new ones are written.
+    assert calls == ["delete_old", "bulk"]
     assert len(captured["actions"]) == 2
     assert captured["actions"][0]["content"] == "hello"
     assert captured["actions"][1]["content"] == "world"

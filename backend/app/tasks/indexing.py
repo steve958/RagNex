@@ -199,6 +199,10 @@ def index_document(self, document_id: str, tenant_id: str) -> dict:
                 }
             )
 
+        # Replace, don't add: a re-parsed document has new chunk ids, so entries from the
+        # previous parse would otherwise linger and surface stale text in search.
+        await asyncio.to_thread(os_svc.delete_document_chunks, tenant_uuid, doc_uuid)
+
         def _do_bulk():
             # raise_on_error=False lets us inspect failures and decide retry.
             # refresh=wait_for: entries must be visible to delete_by_query, or a purge that

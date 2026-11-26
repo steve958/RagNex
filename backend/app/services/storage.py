@@ -8,6 +8,7 @@ from datetime import timedelta
 import anyio
 from fastapi import UploadFile
 from minio import Minio
+from minio.error import S3Error
 
 from backend.app.core.config import settings
 from backend.app.services.parsing import SUPPORTED_EXTENSIONS
@@ -108,6 +109,20 @@ class StorageService:
                 resp.release_conn()
 
         return await anyio.to_thread.run_sync(get_sync)
+
+    async def file_exists(self, tenant_id: uuid.UUID, object_key: str) -> bool:
+        bucket = self.bucket_for_tenant(tenant_id)
+
+        def stat_sync() -> bool:
+            try:
+                self._client.stat_object(bucket, object_key)
+                return True
+            except S3Error as e:
+                if e.code in {"NoSuchKey", "NoSuchBucket", "NoSuchObject"}:
+                    return False
+                raise
+
+        return await anyio.to_thread.run_sync(stat_sync)
 
     async def delete_file(self, tenant_id: uuid.UUID, object_key: str) -> None:
         bucket = self.bucket_for_tenant(tenant_id)

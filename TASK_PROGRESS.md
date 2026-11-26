@@ -510,6 +510,13 @@ Notes:
 - [x] Create document detail modal
 - [x] Implement real-time status updates
 - [x] Create document deletion with confirmation
+- [x] Reprocess documents (2026-11-26)
+  - `POST /api/v1/documents/{id}/reprocess` parses and indexes the stored file again. `POST /api/v1/knowledgebases/{id}/documents/reprocess-failed` does it for every failed document and reports the ones it skipped, with reasons.
+  - Reprocessing is refused (409) while a document is still processing, unless it has been stuck for 30+ minutes. It's also refused when the stored file is gone; the user is told to upload again.
+  - Indexing now replaces a document's previous entries instead of adding to them, so search can't return text or citations from an older parse.
+  - UI: failed rows show their error and a Reprocess button, a "Reprocess N failed" banner covers the whole KB, and the detail view has Reprocess.
+  - Fixed: status polling stopped at "done" (parsed, waiting for indexing), so the list looked stuck.
+  - Tests: `backend/tests/test_reprocess.py` (real stack) and `frontend/src/components/documents/Reprocess.test.tsx`. The tests' task harness now retries tasks like a real worker.
 
 ### P5-5: Chunk Visualization UI
 - [x] Create chunk list view
