@@ -92,21 +92,18 @@ class StorageService:
         object_key = self._object_key(file.filename or "upload")
 
         # UploadFile.file is a SpooledTemporaryFile; stream it with multipart when size unknown.
-        async def _put() -> None:
-            def put_sync() -> None:
-                file.file.seek(0)
-                self._client.put_object(
-                    bucket_name=bucket,
-                    object_name=object_key,
-                    data=file.file,  # type: ignore[arg-type]
-                    length=-1,
-                    part_size=10 * 1024 * 1024,  # 10MB parts
-                    content_type=file.content_type or "application/octet-stream",
-                )
+        def put_sync() -> None:
+            file.file.seek(0)
+            self._client.put_object(
+                bucket_name=bucket,
+                object_name=object_key,
+                data=file.file,  # type: ignore[arg-type]
+                length=-1,
+                part_size=10 * 1024 * 1024,  # 10MB parts
+                content_type=file.content_type or "application/octet-stream",
+            )
 
-            return anyio.to_thread.run_sync(put_sync)
-
-        await _put()
+        await anyio.to_thread.run_sync(put_sync)
         return object_key
 
     async def download_file(self, tenant_id: uuid.UUID, object_key: str) -> bytes:
