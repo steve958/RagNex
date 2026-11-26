@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     access_token_expires_minutes: int = 30
     refresh_token_expires_days: int = 14
 
+    # Self sign-up. Off: only operators create accounts (backend.app.services.accounts).
+    # Email domains (JSON list, e.g. ["example.com"]): when set, only addresses at exactly
+    # these domains may sign up.
+    registration_enabled: bool = True
+    registration_email_domains: list[str] = []
+
     # Browser origins allowed to call the API cross-origin (JSON list in env, e.g.
     # CORS_ORIGINS='["https://app.example.com"]'). Not needed when the frontend is served
     # from the same origin or through the Vite dev proxy.

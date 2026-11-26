@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
+import { useRegistrationInfo } from '../../services/registrationApi';
 import { useAuth } from '../../store/auth';
 
 export const AppLayout: React.FC<React.PropsWithChildren> = ({ children }) => {
   const { user, isAuthenticated, logout } = useAuth();
+  const registration = useRegistrationInfo();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -23,7 +25,7 @@ export const AppLayout: React.FC<React.PropsWithChildren> = ({ children }) => {
           {!isAuthenticated && (
             <>
               <Link to="/login">Login</Link>
-              <Link to="/register">Register</Link>
+              {registration?.enabled !== false && <Link to="/register">Register</Link>}
             </>
           )}
           {isAuthenticated && (

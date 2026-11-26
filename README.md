@@ -129,6 +129,8 @@ cd frontend && npm test -- --run --coverage
 ```
 
 ### Maintenance
+- `python -m backend.app.services.accounts create-user EMAIL [--workspace ID]`: creates an
+  account, for when sign-up is turned off (`REGISTRATION_ENABLED=false`).
 - `python -m backend.app.services.deletion_backfill`: purges data left behind by deletions
   made before deletion purging existed. Dry run by default; `--execute` applies it.
 

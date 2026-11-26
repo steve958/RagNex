@@ -3,12 +3,14 @@ import { Link, useNavigate } from 'react-router-dom';
 
 import { NoTenantError, useAuth } from '../store/auth';
 import { errorDetail } from '../services/errors';
+import { useRegistrationInfo } from '../services/registrationApi';
 
 // Matches the backend's NewPassword rule (backend/app/core/validation.py).
 const MIN_PASSWORD_LENGTH = 8;
 
 export const RegisterPage: React.FC = () => {
   const { register } = useAuth();
+  const registration = useRegistrationInfo();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -38,6 +40,26 @@ export const RegisterPage: React.FC = () => {
     }
   };
 
+  if (registration?.enabled === false) {
+    return (
+      <div className="max-w-md mx-auto">
+        <h1 className="text-2xl font-semibold mb-4">Register</h1>
+        <p className="text-sm text-slate-300">
+          Sign-up is closed on this server. Ask an administrator for an account.
+        </p>
+        <p className="mt-4 text-sm text-slate-300">
+          Already have an account?{' '}
+          <Link to="/login" className="text-sky-400 hover:underline">
+            Login
+          </Link>
+          .
+        </p>
+      </div>
+    );
+  }
+
+  const domains = registration?.email_domains ?? [];
+
   return (
     <div className="max-w-md mx-auto">
       <h1 className="text-2xl font-semibold mb-4">Register</h1>
@@ -52,8 +74,14 @@ export const RegisterPage: React.FC = () => {
             className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-50 focus:outline-none focus:ring-1 focus:ring-sky-500"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            aria-describedby={domains.length ? 'email-hint' : undefined}
             required
           />
+          {domains.length > 0 && (
+            <p id="email-hint" className="text-xs text-slate-500">
+              Only addresses at {domains.join(', ')} can sign up.
+            </p>
+          )}
         </div>
         <div className="space-y-1">
           <label className="block text-sm text-slate-300" htmlFor="password">

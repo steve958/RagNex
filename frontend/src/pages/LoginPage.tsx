@@ -3,9 +3,11 @@ import { Link, useNavigate } from 'react-router-dom';
 
 import { NoTenantError, useAuth } from '../store/auth';
 import { errorDetail } from '../services/errors';
+import { useRegistrationInfo } from '../services/registrationApi';
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
+  const registration = useRegistrationInfo();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -65,13 +67,15 @@ export const LoginPage: React.FC = () => {
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
-      <p className="mt-4 text-sm text-slate-300">
-        Don't have an account?{' '}
-        <Link to="/register" className="text-sky-400 hover:underline">
-          Register
-        </Link>
-        .
-      </p>
+      {registration?.enabled !== false && (
+        <p className="mt-4 text-sm text-slate-300">
+          Don't have an account?{' '}
+          <Link to="/register" className="text-sky-400 hover:underline">
+            Register
+          </Link>
+          .
+        </p>
+      )}
     </div>
   );
 };

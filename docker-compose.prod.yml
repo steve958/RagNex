@@ -46,6 +46,8 @@ x-backend: &backend
     ACCESS_TOKEN_EXPIRES_MINUTES: ${ACCESS_TOKEN_EXPIRES_MINUTES:-30}
     REFRESH_TOKEN_EXPIRES_DAYS: ${REFRESH_TOKEN_EXPIRES_DAYS:-14}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-true}
+    REGISTRATION_EMAIL_DOMAINS: ${REGISTRATION_EMAIL_DOMAINS:-[]}
     # Only the variables listed here reach the containers. To set another backend option
     # (docs/configuration.md), add it to this list.
   extra_hosts:
