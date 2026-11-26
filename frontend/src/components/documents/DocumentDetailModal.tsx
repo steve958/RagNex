@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { DocumentStatus, getDocumentStatus } from '../../services/documentApi';
+import { DocumentStatus, getDocumentStatus, isProcessing, reprocessDocument } from '../../services/documentApi';
+import { errorDetail } from '../../services/errors';
 import type { Chunk } from '../../services/chunkApi';
 import { DocumentChunkList } from '../chunks/DocumentChunkList';
 import { ChunkDetailModal } from '../chunks/ChunkDetailModal';
@@ -12,15 +13,12 @@ interface Props {
   onClose: () => void;
 }
 
-const isInProgress = (status: string) => {
-  const s = status.toLowerCase();
-  return s === 'pending' || s === 'processing' || s === 'parsing' || s === 'indexing';
-};
-
 export const DocumentDetailModal: React.FC<Props> = ({ open, document, onClose }) => {
   const docId = document?.id;
+  const queryClient = useQueryClient();
   const [selectedChunk, setSelectedChunk] = useState<Chunk | null>(null);
   const [chunkSearch, setChunkSearch] = useState<string>('');
+  const [reprocessError, setReprocessError] = useState<string | null>(null);
 
   const { data } = useQuery<DocumentStatus>({
     queryKey: ['document', docId],
@@ -28,8 +26,18 @@ export const DocumentDetailModal: React.FC<Props> = ({ open, document, onClose }
     enabled: open && !!docId,
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status && isInProgress(status) ? 5000 : false;
+      return status && isProcessing(status) ? 5000 : false;
     },
+  });
+
+  const reprocess = useMutation({
+    mutationFn: () => reprocessDocument(docId!),
+    onSuccess: (updated) => {
+      setReprocessError(null);
+      queryClient.setQueryData(['document', docId], updated);
+      queryClient.invalidateQueries({ queryKey: ['documents', updated.kb_id] });
+    },
+    onError: (err) => setReprocessError(errorDetail(err)),
   });
 
   if (!open || !document) return null;
@@ -83,6 +91,24 @@ export const DocumentDetailModal: React.FC<Props> = ({ open, document, onClose }
               <p className="font-semibold mb-0.5">Error</p>
               <p>{doc.error_message}</p>
             </div>
+          )}
+          {!isProcessing(doc.status) && (
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                disabled={reprocess.isPending}
+                onClick={() => reprocess.mutate()}
+                className="rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-800 disabled:opacity-60"
+              >
+                {reprocess.isPending ? 'Queuing…' : 'Reprocess'}
+              </button>
+              <span className="text-[11px] text-slate-500">Parse and index the uploaded file again.</span>
+            </div>
+          )}
+          {reprocessError && (
+            <p role="alert" className="text-[11px] text-red-400">
+              {reprocessError}
+            </p>
           )}
         </div>
 

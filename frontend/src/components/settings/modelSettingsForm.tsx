@@ -3,6 +3,7 @@ import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { useAuth } from '../../store/auth';
+import { errorDetail as baseErrorDetail } from '../../services/errors';
 import {
   EmbeddingUpdate,
   getModelSettings,
@@ -31,15 +32,8 @@ export const useModelSettings = () => {
   });
 };
 
-/** The server's explanation of a rejected save (422/409/403), as one readable string. */
-export const errorDetail = (err: unknown): string => {
-  const detail = (err as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
-  if (typeof detail === 'string') return detail;
-  if (Array.isArray(detail)) {
-    return detail.map((d) => (typeof d?.msg === 'string' ? d.msg : JSON.stringify(d))).join('; ');
-  }
-  return 'Saving failed. Please try again.';
-};
+/** The server's explanation of a rejected save (422/409/403). */
+export const errorDetail = (err: unknown): string => baseErrorDetail(err, 'Saving failed. Please try again.');
 
 export const useSaveModelSettings = () => {
   const { tenantId } = useAuth();

@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 
 import httpx
 import pytest
+from celery.exceptions import Retry
 
 from backend.app.core.config import settings
 from backend.app.main import create_app
@@ -106,8 +107,19 @@ class TaskQueue:
         results = []
         while self.pending:
             task, args = self.pending.pop(0)
-            # Tasks call asyncio.run(), so they must run outside this test's event loop.
-            eager = await asyncio.to_thread(task.apply, args=args)
+            retries = 0
+            while True:
+                try:
+                    # Tasks call asyncio.run(), so they must run outside this test's event loop.
+                    eager = await asyncio.to_thread(task.apply, args=args, retries=retries)
+                except Retry:
+                    eager = None  # eager mode raises the task's retry request (eager_propagates)
+                if eager is not None and eager.state != "RETRY":
+                    break
+                # The task asked to be retried: run it again with the next retry count, as
+                # a worker would (minus the backoff delay). Tasks give up after their limit.
+                retries += 1
+                assert retries <= 10, f"{task.name} kept retrying"
             results.append({"task": task.name, **eager.get()})
         return results
 
