@@ -12,7 +12,7 @@ import {
   MessageHistoryResponse,
   streamChatMessage,
 } from '../services/chatApi';
-import { Chunk } from '../services/chunkApi';
+import { Chunk, getChunk } from '../services/chunkApi';
 import { ChunkDetailModal } from '../components/chunks/ChunkDetailModal';
 
 const formatTime = (iso: string) => {
@@ -213,8 +213,6 @@ export const ChatPage: React.FC = () => {
 
   // Wire global handler for opening chunks from citations.
   (window as any).__ragnex_open_chunk_from_chat = async (chunkId: string) => {
-    // Dynamic import to avoid circulars; use existing getChunk helper.
-    const { getChunk } = await import('../services/chunkApi');
     const chunk = await getChunk(chunkId);
     setSelectedChunk(chunk);
   };

@@ -122,7 +122,7 @@ Celery command.
 
 ```bash
 cd backend && python -m pytest       # needs the dev data stores; end-to-end tests skip without them
-cd frontend && npx vitest run
+cd frontend && npm test -- --run     # npm test alone starts watch mode
 ```
 
 ### Maintenance
