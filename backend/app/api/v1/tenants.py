@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,7 +10,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.db import get_db
-from backend.app.core.deps import get_current_user
+from backend.app.core.deps import require_session_user
 from backend.app.models.tenant import Tenant
 from backend.app.models.user import TenantMembership, User
 from backend.app.services.opensearch import OpenSearchService
@@ -22,6 +23,8 @@ from backend.app.services.model_settings import (
     merge_llm_update,
     settings_view,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tenants")
 
@@ -37,7 +40,7 @@ class TenantUpdateRequest(BaseModel):
 @router.post("", response_model=dict)
 async def create_tenant(
     req: TenantCreateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_session_user),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = Tenant(name=req.name, owner_user_id=current_user.id)
@@ -49,19 +52,20 @@ async def create_tenant(
 
     await db.commit()
 
-    # Ensure search index exists for this tenant (best-effort).
+    # Ensure search index exists for this tenant (best-effort: indexing and search create it
+    # on first use anyway).
     try:
         svc = OpenSearchService()
         await anyio.to_thread.run_sync(lambda: svc.ensure_index(tenant.id))
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001
+        logger.warning("Could not create search index for new tenant %s", tenant.id, exc_info=True)
 
     return {"id": tenant.id, "name": tenant.name}
 
 
 @router.get("", response_model=list[dict])
 async def list_tenants(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_session_user),
     db: AsyncSession = Depends(get_db),
 ):
     res = await db.execute(
@@ -87,7 +91,7 @@ async def _require_membership(db: AsyncSession, tenant_id: uuid.UUID, user_id: u
 @router.get("/{tenant_id}", response_model=dict)
 async def get_tenant(
     tenant_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_session_user),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_membership(db, tenant_id, current_user.id)
@@ -102,7 +106,7 @@ async def get_tenant(
 async def update_tenant(
     tenant_id: uuid.UUID,
     req: TenantUpdateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_session_user),
     db: AsyncSession = Depends(get_db),
 ):
     membership = await _require_membership(db, tenant_id, current_user.id)
@@ -122,7 +126,7 @@ async def update_tenant(
 @router.delete("/{tenant_id}", response_model=dict)
 async def delete_tenant(
     tenant_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_session_user),
     db: AsyncSession = Depends(get_db),
 ):
     membership = await _require_membership(db, tenant_id, current_user.id)
@@ -149,7 +153,7 @@ class AddMemberRequest(BaseModel):
 async def add_member(
     tenant_id: uuid.UUID,
     req: AddMemberRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_session_user),
     db: AsyncSession = Depends(get_db),
 ):
     cur = await _require_membership(db, tenant_id, current_user.id)
@@ -180,7 +184,7 @@ async def add_member(
 async def remove_member(
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_session_user),
     db: AsyncSession = Depends(get_db),
 ):
     cur = await _require_membership(db, tenant_id, current_user.id)
@@ -217,7 +221,7 @@ async def update_member(
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
     req: UpdateMemberRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_session_user),
     db: AsyncSession = Depends(get_db),
 ):
     cur = await _require_membership(db, tenant_id, current_user.id)
@@ -258,7 +262,7 @@ async def _load_live_tenant(db: AsyncSession, tenant_id: uuid.UUID) -> Tenant:
 @router.get("/{tenant_id}/model-settings", response_model=dict)
 async def get_model_settings(
     tenant_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_session_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Effective LLM/embedding settings and the tenant's overrides. API keys are never returned."""
@@ -271,7 +275,7 @@ async def get_model_settings(
 async def update_model_settings(
     tenant_id: uuid.UUID,
     req: ModelSettingsUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_session_user),
     db: AsyncSession = Depends(get_db),
 ):
     membership = await _require_membership(db, tenant_id, current_user.id)

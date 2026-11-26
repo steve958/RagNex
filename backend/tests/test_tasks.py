@@ -5,9 +5,11 @@ import uuid
 import httpx
 import pytest
 
-from backend.app.core.deps import get_current_user
+from backend.app.core.deps import require_tenant_membership
 from backend.app.main import create_app
 from backend.app.models.user import User
+
+TENANT = uuid.uuid4()
 
 
 class DummyResult:
@@ -26,48 +28,41 @@ class DummyResult:
         return self.state == "FAILURE"
 
 
-@pytest.mark.asyncio
-async def test_task_status_success(monkeypatch):
+async def _get(monkeypatch, result: DummyResult) -> httpx.Response:
     app = create_app()
-
-    dummy_user = User(id=uuid.uuid4(), email="x@example.com", password_hash="")
-    app.dependency_overrides[get_current_user] = lambda: dummy_user
-
-    def fake_async_result(task_id: str):
-        return DummyResult(state="SUCCESS", result={"ok": True})
-
-    monkeypatch.setattr("backend.app.api.v1.tasks.celery_app.AsyncResult", fake_async_result)
+    user = User(id=uuid.uuid4(), email="x@example.com", password_hash="")
+    app.dependency_overrides[require_tenant_membership] = lambda: (TENANT, user)
+    monkeypatch.setattr("backend.app.api.v1.tasks.celery_app.AsyncResult", lambda task_id: result)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        r = await client.get("/api/v1/tasks/abc")
-        assert r.status_code == 200, r.text
-        body = r.json()
-        assert body["id"] == "abc"
-        assert body["state"] == "SUCCESS"
-        assert body["ready"] is True
-        assert body["successful"] is True
-        assert body["result"] == {"ok": True}
+        return await client.get("/api/v1/tasks/abc")
 
 
 @pytest.mark.asyncio
-async def test_task_status_failure_includes_traceback(monkeypatch):
-    app = create_app()
+async def test_own_tenants_task_result_is_returned(monkeypatch):
+    r = await _get(monkeypatch, DummyResult("SUCCESS", {"tenant_id": str(TENANT), "status": "done"}))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert (body["id"], body["state"], body["ready"], body["successful"]) == ("abc", "SUCCESS", True, True)
+    assert body["result"] == {"tenant_id": str(TENANT), "status": "done"}
 
-    dummy_user = User(id=uuid.uuid4(), email="x@example.com", password_hash="")
-    app.dependency_overrides[get_current_user] = lambda: dummy_user
 
-    def fake_async_result(task_id: str):
-        return DummyResult(state="FAILURE", result=ValueError("boom"), tb="trace")
+@pytest.mark.asyncio
+async def test_other_tenants_task_is_not_found(monkeypatch):
+    r = await _get(monkeypatch, DummyResult("SUCCESS", {"tenant_id": str(uuid.uuid4()), "status": "done"}))
+    assert r.status_code == 404
 
-    monkeypatch.setattr("backend.app.api.v1.tasks.celery_app.AsyncResult", fake_async_result)
 
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        r = await client.get("/api/v1/tasks/boom")
-        assert r.status_code == 200, r.text
-        body = r.json()
-        assert body["state"] == "FAILURE"
-        assert body["ready"] is True
-        assert body["successful"] is False
-        assert body["traceback"] == "trace"
+@pytest.mark.asyncio
+async def test_failed_task_reveals_no_traceback(monkeypatch):
+    r = await _get(monkeypatch, DummyResult("FAILURE", ValueError("boom at /app/secret/path"), tb="Traceback ..."))
+    assert r.status_code == 404
+    assert "Traceback" not in r.text and "secret" not in r.text
+
+
+@pytest.mark.asyncio
+async def test_pending_task_shows_only_its_state(monkeypatch):
+    r = await _get(monkeypatch, DummyResult("PENDING"))
+    assert r.status_code == 200
+    assert r.json() == {"id": "abc", "state": "PENDING", "ready": False, "successful": False, "result": None}

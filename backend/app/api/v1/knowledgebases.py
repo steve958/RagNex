@@ -8,7 +8,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.db import get_db
-from backend.app.core.deps import require_tenant_membership
+from backend.app.core.deps import require_tenant_membership, require_tenant_read
 from backend.app.models.document import Document
 from backend.app.models.knowledge_base import KnowledgeBase
 from backend.app.services.search import SearchHit, SearchService
@@ -195,7 +195,7 @@ class SearchResponse(BaseModel):
 async def search_knowledge_base(
     kb_id: uuid.UUID,
     req: SearchRequest,
-    ctx=Depends(require_tenant_membership),
+    ctx=Depends(require_tenant_read),
     db: AsyncSession = Depends(get_db),
 ) -> SearchResponse:
     tenant_id, _user = ctx

@@ -10,10 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.api_keys import generate_api_key, hash_api_key
 from backend.app.core.config import settings
 from backend.app.core.db import get_db
-from backend.app.core.deps import require_tenant_membership
+from backend.app.core.deps import require_session_user, require_tenant_membership
 from backend.app.models.api_key import APIKey
 
-router = APIRouter()
+# Managing keys requires signing in: an API key must not be able to create or revoke keys.
+router = APIRouter(dependencies=[Depends(require_session_user)])
 
 
 class CreateAPIKeyRequest(BaseModel):
