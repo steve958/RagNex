@@ -432,12 +432,12 @@ Notes:
 - 2026-11-26: Added streaming: `POST /api/v1/chat/sessions/{id}/messages/stream` (SSE events `meta` → `delta`* → `done`, or `error`). Native streaming in `OllamaLLM` (NDJSON) and `OpenAICompatibleLLM` (SSE). Shared turn setup in `_prepare_turn`. The user message is committed before streaming; on generation failure no assistant message is saved. Frontend `ChatPage` renders tokens live via `streamChatMessage` (fetch + `SseParser`). Verified end-to-end against Ollama `gemma2:2b`, directly and through the Vite proxy.
 - 2026-11-26: Fixed `OpenSearchService.ensure_chunks_policy` failing with 409 once the ISM policy exists (it runs on every search and indexing call).
 - 2026-11-26: Frontend now sends `X-Tenant-ID` (resolved after login), the backend has CORS, and Vite proxies `/api` in dev. Before this, tenant-scoped calls from the UI could not succeed.
-- Open: a stream aborted by the client (tab closed) saves no assistant message; partial answers are discarded.
+- 2026-11-26: Streamed answers now run in a background task and are saved even if the client disconnects. Answers still being generated when the server restarts are lost.
 
 ### P4-4: Message History & Context Management
 - [x] Create message history endpoints
 - [x] `GET /api/v1/chat/sessions/{id}/messages`
-- [ ] Implement context window management
+- [x] Implement context window management
 - [ ] Add message summarization for long conversations
 - [x] Implement message pagination
 - [x] Add message metadata (timestamps, token counts)
@@ -446,6 +446,7 @@ Notes:
 - 2026-01-15: Added `GET /api/v1/chat/sessions/{session_id}/messages` in `backend/app/api/v1/chat.py` with offset/limit pagination, scoped to the current tenant and user.
 - 2026-01-15: Each history item now includes a naive `token_estimate` alongside role/content/citations/timestamps, to support future context window management.
 - 2026-01-15: Context window trimming and true summarization are deferred; current RAG pipeline uses full per-session history.
+- 2026-11-26: Added `backend/app/services/prompt_budget.py`. Prompts fit `LLM_CONTEXT_WINDOW` (default 8192) minus `LLM_MAX_TOKENS`, using conservative token estimates and filling at most 90% of the window. Priority: system prompt and question, then retrieved chunks by rank, then the newest complete exchanges. Unanswered questions are left out of history. Citations list only the chunks actually sent. Ollama now receives `num_ctx`. Summarizing dropped history is still open.
 
 ---
 
