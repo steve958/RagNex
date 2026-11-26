@@ -547,7 +547,11 @@ Notes:
 - [ ] Create integration test fixtures
 - [ ] Write API integration tests
 - [ ] Write chunking parity tests
-- [ ] Create end-to-end test scenarios
+- [x] Create end-to-end test scenarios (upload → answer; more scenarios still to add)
+
+Notes:
+- 2026-11-26: Added `backend/tests/test_e2e_pipeline.py`. Through the HTTP API, it covers upload (real MinIO) → parse/chunk → embed/index (real OpenSearch) → hybrid search → streamed chat. It runs the real Celery task code in-process via `.apply()`. Only the embedding model (deterministic hashed bag-of-words) and the LLM are faked. It checks KB isolation, that the retrieved text reaches the prompt, and that citations resolve to real chunks. It auto-skips when OpenSearch/MinIO are unreachable and deletes its OpenSearch indices and MinIO bucket afterwards.
+- 2026-11-26: The test found that `StorageService.upload_file` never wrote to MinIO: it returned an un-awaited coroutine, so every upload saved the DB row but no file, and parsing then failed with `NoSuchKey`. Fixed. The test also fails if the ISM 409 fix is reverted.
 
 ### P6-3: Performance Testing
 - [ ] Create load test scripts (Locust/k6)
