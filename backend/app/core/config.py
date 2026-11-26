@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     # Tenant context
     tenant_header: str = "X-Tenant-ID"
 
+    # Browser origins allowed to call the API cross-origin (JSON list in env, e.g.
+    # CORS_ORIGINS='["https://app.example.com"]'). Not needed when the frontend is served
+    # from the same origin or through the Vite dev proxy.
+    cors_origins: list[str] = ["http://localhost:5173"]
+
     # Upload limits
     max_upload_size_mb: int = 100
 

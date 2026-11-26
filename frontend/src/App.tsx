@@ -12,9 +12,13 @@ import { SettingsPage } from './pages/SettingsPage';
 import { useAuth } from './store/auth';
 
 const ProtectedRoute: React.FC<React.PropsWithChildren> = ({ children }) => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, tenantId } = useAuth();
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+  // Tenant-scoped requests fail without X-Tenant-ID, so wait until it's resolved.
+  if (!tenantId) {
+    return <p className="p-4 text-sm text-slate-400">Loading workspace…</p>;
   }
   return <>{children}</>;
 };
