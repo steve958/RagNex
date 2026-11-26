@@ -1,3 +1,12 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# Dependency manifest only: the code is imported as `backend.app.*` from the repo root
+# (see README), so installing this project installs its dependencies and no modules.
+[tool.setuptools]
+py-modules = []
+
 [project]
 name = "ragnex-backend"
 version = "0.0.1"
@@ -6,7 +15,7 @@ requires-python = ">=3.10"
 dependencies = [
   "fastapi>=0.109.0",
   "uvicorn[standard]>=0.27.0",
-  "sqlalchemy>=2.0.0",
+  "sqlalchemy[asyncio]>=2.0.0",  # [asyncio] pulls in greenlet, required by AsyncSession
   "asyncpg>=0.29.0",
   "alembic>=1.13.0",
   "redis>=5.0.0",
@@ -18,6 +27,12 @@ dependencies = [
   "httpx>=0.26.0",
   "structlog>=24.4.0",
   "opensearch-py>=2.4.0",
+  # Auth: JWTs, password hashing, EmailStr validation, rate limiting
+  "PyJWT>=2.8.0",
+  "passlib>=1.7.4",
+  "argon2-cffi>=23.1.0",
+  "email-validator>=2.1.0",
+  "slowapi>=0.1.9",
 ]
 
 [project.optional-dependencies]
