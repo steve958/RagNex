@@ -51,7 +51,7 @@ export const ChatPage: React.FC = () => {
 
   const { data: historyData, isLoading: historyLoading } = useQuery({
     queryKey: ['chat-history', selectedSessionId],
-    queryFn: () => (selectedSessionId ? getMessageHistory(selectedSessionId, { offset: 0, limit: 200 }) : undefined),
+    queryFn: () => getMessageHistory(selectedSessionId!, { offset: 0, limit: 200 }),
     enabled: !!selectedSessionId,
     refetchInterval: 10_000,
   });
@@ -245,7 +245,7 @@ export const ChatPage: React.FC = () => {
               )}
             </header>
             <div className="flex-1 overflow-auto px-4 py-3 space-y-2 text-sm">
-              {historyLoading && (!historyData || historyData.items.length === 0) && (
+              {historyLoading && (
                 <p className="text-[11px] text-slate-400">Loading messages…</p>
               )}
               {historyData?.items.map((m) => renderMessage(m))}

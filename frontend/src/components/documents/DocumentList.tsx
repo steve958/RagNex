@@ -19,7 +19,8 @@ export const DocumentList: React.FC<Props> = ({ kbId, onDocumentClick }) => {
   const { data, isLoading, isError } = useQuery<DocumentStatus[]>({
     queryKey: ['documents', kbId],
     queryFn: () => listDocumentsForKnowledgeBase(kbId),
-    refetchInterval: (data) => (data && data.some((d) => isInProgress(d.status)) ? 5000 : false),
+    refetchInterval: (query) =>
+      query.state.data?.some((d) => isInProgress(d.status)) ? 5000 : false,
   });
 
   const { mutateAsync: deleteAsync, isPending: isDeleting } = useMutation({

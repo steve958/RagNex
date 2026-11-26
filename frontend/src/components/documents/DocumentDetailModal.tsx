@@ -22,11 +22,14 @@ export const DocumentDetailModal: React.FC<Props> = ({ open, document, onClose }
   const [selectedChunk, setSelectedChunk] = useState<Chunk | null>(null);
   const [chunkSearch, setChunkSearch] = useState<string>('');
 
-  const { data } = useQuery<DocumentStatus | undefined>({
+  const { data } = useQuery<DocumentStatus>({
     queryKey: ['document', docId],
-    queryFn: docId ? () => getDocumentStatus(docId) : async () => undefined,
+    queryFn: () => getDocumentStatus(docId!),
     enabled: open && !!docId,
-    refetchInterval: (data) => (data && isInProgress(data.status) ? 5000 : false),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status && isInProgress(status) ? 5000 : false;
+    },
   });
 
   if (!open || !document) return null;

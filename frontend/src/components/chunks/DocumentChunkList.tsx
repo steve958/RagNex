@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import { Chunk, listChunksForDocument } from '../../services/chunkApi';
 
@@ -32,7 +32,7 @@ export const DocumentChunkList: React.FC<Props> = ({ documentId, onChunkClick })
   const { data, isLoading, isError } = useQuery({
     queryKey: ['document-chunks', documentId, page, searchQuery],
     queryFn: () => listChunksForDocument(documentId, { page, q: searchQuery || undefined }),
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
   });
 
   const handleSearchSubmit = (e: React.FormEvent) => {
