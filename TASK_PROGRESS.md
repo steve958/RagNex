@@ -554,7 +554,20 @@ Notes:
 ## Phase 6: Integration & Testing
 
 ### P6-1: Unit Test Coverage
-- [ ] Backend unit tests (target: 80% coverage)
+- [x] Backend unit tests (target: 80% coverage)
+  - 2026-11-26 measurement: backend app code 91%; in-scope DeepDoc parsers 59%; combined 81% (statements, with branch coverage on); frontend 64%.
+    - Coverage is configured in `backend/pyproject.toml` (`concurrency = ["thread", "greenlet"]` is required: SQLAlchemy async runs queries in greenlets, and without it every line after an awaited query is reported as missed, which undercounted the app at 83%) and in `frontend/vitest.config.ts`.
+    - Out-of-scope DeepDoc parsers (resume, MinerU, TCADP, Docling, figures) are excluded because nothing calls them.
+  - Bugs found by testing the gaps:
+    - member roles were free text (`"admin"` was accepted, and long values gave 500s);
+    - the last owner could be demoted via role change or re-add, leaving a workspace nobody can manage;
+    - login response time revealed which emails have accounts;
+    - deleted users could still log in;
+    - the upload form showed validation errors as "[object Object]";
+    - an API key with no scopes could be created.
+
+    All fixed. New tests: `test_tenant_management.py`, `test_auth_failures.py`, `test_knowledgebase_crud.py`, non-streaming LLM parsing, health failure output; frontend chat streaming, upload form, API keys section.
+  - Unused: `StorageService.get_usage_bytes`, `cleanup_orphaned_objects` and `generate_presigned_url` have no callers, although P1-4 marks "storage usage tracking" and "orphan cleanup job" as done. Decide whether to wire them up or remove them.
 - [x] Frontend unit tests
   - 2026-11-26: Tooling upgraded: vite 5→8, vitest 1→5, @vitejs/plugin-react 4→6, jsdom 24→29, Testing Library react 14→16 and jest-dom 6→8. react-router-dom 6→7.18 fixes a runtime vulnerability. `npm audit`: 0 vulnerabilities (was 7). React 18, Tailwind 3 and TypeScript 5 are unchanged; each of those upgrades is its own migration. The Windows lowercase-drive-letter bug ("failed to find the runner") persists in vitest 5. `npm test` now runs it through `frontend/scripts/vitest.mjs`, which starts Vitest from the canonical path.
 - [x] DeepDoc parser tests

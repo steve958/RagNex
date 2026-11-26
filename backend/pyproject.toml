@@ -45,6 +45,7 @@ dev = [
   # Security scanning: bandit -r backend/app ; pip-audit
   "bandit>=1.8.0",
   "pip-audit>=2.7.0",
+  "pytest-cov>=6.0.0",
 ]
 
 # DeepDoc parsing stack (text extraction + basic file parsers)
@@ -77,3 +78,24 @@ line-length = 100
 
 [tool.black]
 line-length = 100
+
+# Coverage: run from backend/ with `python -m pytest --cov`. Measures the app and the DeepDoc
+# parsers it uses; parsers for out-of-scope formats (resume, MinerU, TCADP, Docling, figures)
+# are never called, so they're excluded rather than counted as untested.
+[tool.coverage.run]
+branch = true
+# SQLAlchemy's asyncio mode runs database calls in greenlets; without this, every line
+# after an awaited query is reported as never run.
+concurrency = ["thread", "greenlet"]
+source = ["app", "../deepdoc/parser"]
+omit = [
+  "*/deepdoc/parser/resume/*",
+  "*/deepdoc/parser/mineru_parser.py",
+  "*/deepdoc/parser/tcadp_parser.py",
+  "*/deepdoc/parser/docling_parser.py",
+  "*/deepdoc/parser/figure_parser.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

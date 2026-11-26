@@ -98,9 +98,13 @@ export const ApiKeysSection: React.FC = () => {
               <span>write</span>
             </label>
           </div>
+          <p className="text-[11px] text-slate-500">
+            read: list and search documents. write: also upload, delete and chat. A key works only in this workspace and
+            can't manage members, settings or other keys.
+          </p>
           <button
             type="submit"
-            disabled={createMutation.isPending}
+            disabled={createMutation.isPending || (!scopeRead && !scopeWrite)}
             className="rounded bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-60"
           >
             {createMutation.isPending ? 'Creating…' : 'Create key'}

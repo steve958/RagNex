@@ -123,6 +123,10 @@ Celery command.
 ```bash
 cd backend && python -m pytest       # needs the dev data stores; end-to-end tests skip without them
 cd frontend && npm test -- --run     # npm test alone starts watch mode
+
+# Coverage (configured in backend/pyproject.toml and frontend/vitest.config.ts)
+cd backend && python -m pytest --cov
+cd frontend && npm test -- --run --coverage
 ```
 
 ### Maintenance

@@ -127,3 +127,51 @@ async def test_openai_provider_still_uses_openai_settings(monkeypatch):
     await _collect(llm_module.create_llm_service(LLMConfig(provider="openai", model="m")))
     assert captured[0].url == "http://oai/v1/chat/completions"
     assert captured[0].headers["Authorization"] == "Bearer sk-openai"
+
+
+# --- Non-streaming generate (used by POST /chat/sessions/{id}/messages) --------------------
+
+
+@pytest.mark.asyncio
+async def test_ollama_generate_parses_the_reply(monkeypatch):
+    body = {"model": "m", "message": {"role": "assistant", "content": "Hello there"}, "done": True, "done_reason": "stop"}
+    captured = _install_transport(monkeypatch, lambda req: httpx.Response(200, json=body))
+
+    result = await OllamaLLM(LLMConfig(provider="ollama", model="m", base_url="http://ollama")).generate(MESSAGES)
+    assert (result.content, result.model, result.finish_reason) == ("Hello there", "m", "stop")
+    assert json.loads(captured[0].content)["stream"] is False
+
+
+@pytest.mark.asyncio
+async def test_openai_generate_parses_the_reply_and_usage(monkeypatch):
+    body = {
+        "model": "gpt",
+        "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hi"}, "finish_reason": "stop"}],
+        "usage": {"total_tokens": 7},
+    }
+    _install_transport(monkeypatch, lambda req: httpx.Response(200, json=body))
+
+    svc = OpenAICompatibleLLM(LLMConfig(provider="openai", model="gpt", base_url="http://oai/v1", api_key="k"))
+    result = await svc.generate(MESSAGES)
+    assert (result.content, result.finish_reason, result.usage) == ("Hi", "stop", {"total_tokens": 7})
+
+
+@pytest.mark.asyncio
+async def test_openai_generate_without_choices_is_an_error(monkeypatch):
+    _install_transport(monkeypatch, lambda req: httpx.Response(200, json={"choices": []}))
+    svc = OpenAICompatibleLLM(LLMConfig(provider="openai", model="gpt", base_url="http://oai/v1"))
+    with pytest.raises(ValueError, match="Empty choices"):
+        await svc.generate(MESSAGES)
+
+
+@pytest.mark.asyncio
+async def test_generate_raises_on_http_errors(monkeypatch):
+    _install_transport(monkeypatch, lambda req: httpx.Response(503, text="overloaded"))
+    with pytest.raises(httpx.HTTPStatusError):
+        await OllamaLLM(LLMConfig(provider="ollama", model="m", base_url="http://ollama")).generate(MESSAGES)
+
+
+def test_unknown_provider_is_rejected():
+    cfg = LLMConfig(provider="ollama", model="m").model_copy(update={"provider": "anthropic"})
+    with pytest.raises(ValueError, match="Unknown LLM provider"):
+        llm_module.create_llm_service(cfg)

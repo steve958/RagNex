@@ -76,3 +76,29 @@ async def test_cors_preflight_allows_auth_and_tenant_headers():
     assert r.headers["access-control-allow-origin"] == "http://localhost:5173"
     allowed = r.headers["access-control-allow-headers"].lower()
     assert "x-tenant-id" in allowed and "authorization" in allowed
+
+
+@pytest.mark.asyncio
+async def test_health_ready_reports_failures_without_leaking_details(monkeypatch):
+    """A failing component makes readiness false; the unauthenticated response names only
+    the error type, never the message (which can contain hosts or connection strings)."""
+
+    async def ok():
+        return "ok"
+
+    async def broken_postgres():
+        raise ConnectionRefusedError("could not connect to postgresql://ragnex:s3cret@db-internal:5432")
+
+    monkeypatch.setattr("backend.app.api.v1.health.check_postgres", broken_postgres)
+    for name in ("check_redis", "check_minio", "check_opensearch"):
+        monkeypatch.setattr(f"backend.app.api.v1.health.{name}", ok)
+
+    transport = httpx.ASGITransport(app=create_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        for path in ("/health/ready", "/health/detailed"):
+            r = await client.get(path)
+            body = r.json()
+            assert body["ok"] is False
+            assert body["components"]["postgres"] == {**body["components"]["postgres"], "ok": False, "detail": "ConnectionRefusedError"}
+            assert body["components"]["redis"]["ok"] is True
+            assert "s3cret" not in r.text and "db-internal" not in r.text
