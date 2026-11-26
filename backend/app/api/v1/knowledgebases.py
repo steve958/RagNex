@@ -216,7 +216,7 @@ async def search_knowledge_base(
     svc = SearchService()
     hits: list[SearchHit] = await svc.search(
         tenant_id=tenant_id,
-        kb_id=kb_id,
+        kb_ids=[kb_id],
         query=req.query,
         top_k=req.top_k,
         bm25_k=req.bm25_k,

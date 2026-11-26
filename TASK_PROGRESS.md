@@ -433,6 +433,7 @@ Notes:
 - 2026-11-26: Fixed `OpenSearchService.ensure_chunks_policy` failing with 409 once the ISM policy exists (it runs on every search and indexing call).
 - 2026-11-26: Frontend now sends `X-Tenant-ID` (resolved after login), the backend has CORS, and Vite proxies `/api` in dev. Before this, tenant-scoped calls from the UI could not succeed.
 - 2026-11-26: Streamed answers now run in a background task and are saved even if the client disconnects. Answers still being generated when the server restarts are lost.
+- 2026-11-26: Multi-KB chat. `SearchService.search` takes `kb_ids`, and a session searches all of its live knowledge bases in one query (`terms` filter on the tenant index), ranked together. Previously it searched only an arbitrary first one. The chat page creates sessions over any checked KBs and shows KB names. Tests: `backend/tests/test_multi_kb.py` (real stack).
 
 ### P4-4: Message History & Context Management
 - [x] Create message history endpoints

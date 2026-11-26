@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import sqlalchemy as sa
@@ -83,7 +84,7 @@ class SearchService:
         self,
         *,
         tenant_id: uuid.UUID,
-        kb_id: uuid.UUID,
+        kb_ids: Sequence[uuid.UUID],
         query: str,
         top_k: int = 10,
         bm25_k: int | None = None,
@@ -92,6 +93,13 @@ class SearchService:
         bm25_weight: float = 1.0,
         vector_weight: float = 1.0,
     ) -> list[SearchHit]:
+        """Hybrid search across one or more knowledge bases of a tenant.
+
+        All of a tenant's chunks live in one index, so several KBs are searched in a single
+        query and ranked together (not per KB and then merged).
+        """
+        if not kb_ids:
+            raise ValueError("kb_ids must not be empty")
         top_k = max(1, min(100, int(top_k)))
         # Fetch extra candidates: hits from deleted documents are dropped after fusion.
         bm25_k = max(top_k, int(bm25_k or top_k * 2))
@@ -102,7 +110,7 @@ class SearchService:
 
         filters = [
             {"term": {"tenant_id": str(tenant_id)}},
-            {"term": {"kb_id": str(kb_id)}},
+            {"terms": {"kb_id": sorted({str(k) for k in kb_ids})}},
         ]
 
         bm25_body = {

@@ -66,12 +66,12 @@ async def test_chat_message_rag_flow_monkeypatched(monkeypatch):
         # Patch SearchService.search and _make_llm_service in the chat module
         from backend.app.api.v1 import chat as chat_module
 
-        async def fake_search(self, *, tenant_id, kb_id, query, top_k=10, **_kwargs):  # type: ignore[override]
+        async def fake_search(self, *, tenant_id, kb_ids, query, top_k=10, **_kwargs):  # type: ignore[override]
             return [
                 SearchHit(
                     chunk_id="c1",
                     doc_id="d1",
-                    kb_id=str(kb_id),
+                    kb_id=str(kb_ids[0]),
                     tenant_id=str(tenant_id),
                     content="context chunk one",
                     score=1.0,

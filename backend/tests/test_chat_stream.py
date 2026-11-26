@@ -71,12 +71,12 @@ async def _messages_in_db(session_id: uuid.UUID) -> list[tuple[str, str]]:
 
 
 def _patch_search(monkeypatch, chat_module) -> None:
-    async def fake_search(self, *, tenant_id, kb_id, query, top_k=10, **_kwargs):
+    async def fake_search(self, *, tenant_id, kb_ids, query, top_k=10, **_kwargs):
         return [
             SearchHit(
                 chunk_id="c1",
                 doc_id="d1",
-                kb_id=str(kb_id),
+                kb_id=str(kb_ids[0]),
                 tenant_id=str(tenant_id),
                 content="context chunk one",
                 score=1.0,

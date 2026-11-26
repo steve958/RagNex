@@ -370,10 +370,6 @@ async def _prepare_turn(
         # History stays readable; only new questions are refused.
         raise HTTPException(status_code=400, detail=KB_DELETED_DETAIL)
 
-    # For now we support a single KB per session for retrieval; if multiple are configured,
-    # we use the first one. Multi-KB retrieval can be added later.
-    kb = live_kbs[0]
-
     # Load prior turns before adding the new user message; it is passed separately as
     # the current question.
     history = await _load_history_messages(db, session)
@@ -388,11 +384,11 @@ async def _prepare_turn(
     db.add(user_msg)
     await db.flush()
 
-    # Retrieve relevant chunks.
+    # Retrieve relevant chunks from all of the session's (live) knowledge bases, ranked together.
     search = SearchService()
     hits = await search.search(
         tenant_id=tenant_id,
-        kb_id=kb.id,
+        kb_ids=[kb.id for kb in live_kbs],
         query=req.content,
         top_k=req.top_k,
     )

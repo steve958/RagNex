@@ -33,19 +33,28 @@ export const ChatPage: React.FC = () => {
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const [selectedChunk, setSelectedChunk] = useState<Chunk | null>(null);
-  const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
+  // Knowledge bases for the next new session; it searches all of them.
+  const [selectedKbIds, setSelectedKbIds] = useState<string[]>([]);
 
   const { data: kbList } = useQuery<KnowledgeBaseSummary[]>({
     queryKey: ['knowledge-bases'],
     queryFn: fetchKnowledgeBases,
   });
 
-  // Default KB selection to the first available KB
+  // Ignore selections whose knowledge base has since been deleted.
+  const liveSelectedKbIds = selectedKbIds.filter((id) => kbList?.some((kb) => kb.id === id));
+
+  // Default the selection to the first available KB.
   useEffect(() => {
-    if (kbList && kbList.length > 0 && !selectedKbId) {
-      setSelectedKbId(kbList[0].id);
+    if (kbList && kbList.length > 0 && liveSelectedKbIds.length === 0) {
+      setSelectedKbIds([kbList[0].id]);
     }
-  }, [kbList, selectedKbId]);
+  }, [kbList, liveSelectedKbIds.length]);
+
+  const toggleKb = (id: string) =>
+    setSelectedKbIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const kbName = (id: string) => kbList?.find((kb) => kb.id === id)?.name ?? 'deleted knowledge base';
 
   const { data: sessions, isLoading: sessionsLoading } = useQuery<ChatSession[]>({
     queryKey: ['chat-sessions'],
@@ -109,8 +118,8 @@ export const ChatPage: React.FC = () => {
   });
 
   const handleCreateSession = async () => {
-    if (!kbList || kbList.length === 0 || !selectedKbId) return;
-    await createSessionMutation.mutateAsync({ kb_ids: [selectedKbId] });
+    if (liveSelectedKbIds.length === 0) return;
+    await createSessionMutation.mutateAsync({ kb_ids: liveSelectedKbIds });
   };
 
   const handleSend = async (e: React.FormEvent) => {
@@ -219,30 +228,38 @@ export const ChatPage: React.FC = () => {
           <button
             type="button"
             onClick={handleCreateSession}
-            disabled={createSessionMutation.isPending || !kbList || kbList.length === 0 || !selectedKbId}
+            disabled={createSessionMutation.isPending || liveSelectedKbIds.length === 0}
             className="rounded bg-sky-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-sky-500 disabled:opacity-60"
           >
             New
           </button>
         </div>
-        <div className="mb-3 text-[11px] text-slate-400">
-          <span className="mr-1">Knowledge base:</span>
-          <select
-            value={selectedKbId ?? ''}
-            onChange={(e) => setSelectedKbId(e.target.value || null)}
-            className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
-          >
-            {!kbList || kbList.length === 0 ? (
-              <option value="">No knowledge bases available</option>
-            ) : (
-              kbList.map((kb) => (
-                <option key={kb.id} value={kb.id}>
-                  {kb.name}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
+        <fieldset className="mb-3 text-[11px] text-slate-400">
+          <legend className="mb-1">Knowledge bases for a new chat:</legend>
+          {!kbList || kbList.length === 0 ? (
+            <p className="text-slate-500">No knowledge bases available</p>
+          ) : (
+            <div className="max-h-32 space-y-1 overflow-auto rounded border border-slate-700 bg-slate-900 px-2 py-1">
+              {kbList.map((kb) => {
+                const checked = liveSelectedKbIds.includes(kb.id);
+                // A chat needs at least one knowledge base.
+                const onlyOne = checked && liveSelectedKbIds.length === 1;
+                return (
+                  <label key={kb.id} className="flex items-center gap-2 text-slate-100">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={onlyOne}
+                      onChange={() => toggleKb(kb.id)}
+                      className="accent-sky-500"
+                    />
+                    <span className="truncate">{kb.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </fieldset>
         {sessionsLoading ? (
           <p className="text-[11px] text-slate-400">Loading sessions…</p>
         ) : !sessions || sessions.length === 0 ? (
@@ -290,8 +307,8 @@ export const ChatPage: React.FC = () => {
               <div>
                 <p className="font-semibold text-slate-100">{activeSession.name || 'Untitled session'}</p>
                 <p className="text-[11px] text-slate-400">
-                  KBs:{' '}
-                  {activeSession.kb_ids.length > 0 ? activeSession.kb_ids.join(', ') : 'None'}
+                  Searches:{' '}
+                  {activeSession.kb_ids.length > 0 ? activeSession.kb_ids.map(kbName).join(', ') : 'None'}
                 </p>
               </div>
               {activeSession.system_prompt && (
