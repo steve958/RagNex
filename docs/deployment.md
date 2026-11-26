@@ -1,0 +1,188 @@
+# Deploying RagNex
+
+How to run RagNex for real users with `docker-compose.prod.yml`: secrets, TLS, backups,
+and a checklist for going live. Every setting is described in
+[configuration.md](configuration.md).
+
+## Secrets
+
+### What is secret and where it lives
+
+| Secret | Where | Who can use it |
+|---|---|---|
+| `JWT_SECRET` | `.env.prod` | Anyone who has it can sign in as any user. |
+| `POSTGRES_PASSWORD` | `.env.prod` | Full access to all data: users, workspaces, chats, and workspace API keys. |
+| `MINIO_ROOT_PASSWORD` | `.env.prod` | Full access to every uploaded file. |
+| `OPENAI_API_KEY` | `.env.prod` | Model usage billed to you. |
+| Workspace model API keys | Postgres, set by workspace owners in Settings | Model usage billed to that workspace's account. |
+| User passwords | Postgres, as argon2 hashes | Not recoverable from the database. |
+| RagNex API keys | Postgres, as SHA-256 hashes | Shown once when created; not recoverable from the database. |
+
+Keep `.env.prod` out of version control (`.gitignore` already excludes it) and readable
+only by the account that runs Docker (`chmod 600 .env.prod`). Anyone who can run `docker`
+commands on the host can read these values from the containers (`docker inspect`), so treat
+Docker access as access to the secrets.
+
+**Workspace model API keys are stored in the database unencrypted.** The API never returns
+them, but anyone with the database or a backup of it can read them. Protect backups
+accordingly.
+
+### Generating them
+
+```bash
+openssl rand -hex 32    # JWT_SECRET (at least 32 bytes; the backend refuses weaker values)
+openssl rand -hex 24    # POSTGRES_PASSWORD, MINIO_ROOT_PASSWORD
+```
+
+Use hex (letters and digits only) for `POSTGRES_PASSWORD`: compose puts it inside the
+database URL, where characters such as `@`, `:`, `/` or `#` break the connection.
+
+`OPENSEARCH_INITIAL_ADMIN_PASSWORD` is only demanded by the OpenSearch image. It needs upper
+and lower case, a digit and a symbol (for example `Ragnex-` followed by `openssl rand -hex 8`).
+RagNex never uses it.
+
+### Rotating secrets
+
+After editing `.env.prod`, apply it with:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+```
+
+This recreates only the containers whose settings changed.
+
+| Secret | How | Effect |
+|---|---|---|
+| `JWT_SECRET` | Change it in `.env.prod`, then apply. | Everyone is signed out and logs in again. RagNex API keys keep working: they don't depend on this secret. |
+| `POSTGRES_PASSWORD` | Change it in the database **first**, then in `.env.prod`, then apply (see below). | None, if done in this order. Changing only `.env.prod` locks the API out of the database, because Postgres applies `POSTGRES_PASSWORD` only when its volume is first created. |
+| `MINIO_ROOT_PASSWORD` | Change it in `.env.prod`, then apply. | MinIO and the backend restart with the new password; uploads are briefly unavailable. |
+| `OPENAI_API_KEY` | Change it in `.env.prod`, then apply. | None. |
+| Workspace model API keys | The workspace owner replaces them in Settings. | Takes effect on the next request. |
+| A RagNex API key | Create a new key in Settings, switch clients to it, then revoke the old one. | The old key stops working when revoked. |
+
+Changing the Postgres password:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec postgres \
+  psql -U ragnex -d ragnex -c "ALTER USER ragnex PASSWORD 'NEW_PASSWORD'"
+# then set POSTGRES_PASSWORD=NEW_PASSWORD in .env.prod and apply
+```
+
+(Use your `POSTGRES_USER` and `POSTGRES_DB` if you changed them.)
+
+## Reverse proxy and TLS
+
+RagNex serves plain HTTP on `RAGNEX_HTTP_PORT`. To expose it beyond your machine, put a
+reverse proxy that handles TLS in front of it (nginx, Caddy, Traefik or a cloud load
+balancer). The proxy must:
+
+- **Forward everything** to the `frontend` port. nginx inside RagNex serves the web app and
+  forwards `/api` to the API.
+- **Not buffer `/api` responses.** Chat answers stream as server-sent events; a buffering
+  proxy delivers them all at once at the end. (nginx: `proxy_buffering off`.)
+- **Allow long requests:** 300 seconds or more, for long answers and large uploads.
+- **Accept uploads at least as large as `MAX_UPLOAD_SIZE_MB`.** (nginx: `client_max_body_size`.)
+- **Send the client's address in `X-Forwarded-For`**, and then set `RAGNEX_TRUSTED_PROXY`,
+  as described below.
+
+### Client addresses and `RAGNEX_TRUSTED_PROXY`
+
+Rate limits on login and registration count requests per client address. Behind a proxy,
+every request comes from the proxy's address, so RagNex must learn the real one from the
+proxy's `X-Forwarded-For` header. It believes that header only from the address in
+`RAGNEX_TRUSTED_PROXY` and ignores it from anyone else, so clients can't make up their own
+address.
+
+To find the proxy's address as RagNex sees it, leave `RAGNEX_TRUSTED_PROXY` unset, open
+the site through the proxy, and look at the first field of the latest line in:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod logs --tail 5 frontend
+```
+
+A proxy on the same machine usually shows up as the Docker network's gateway (for example
+`172.18.0.1`). Set that address in `.env.prod` and apply. With several proxies, a CIDR
+range covering exactly them works too.
+
+Never set a range that includes the internet (such as `0.0.0.0/0`): any client could then
+pick its own address and get around the rate limits.
+
+If the proxy runs on the same machine, also set `RAGNEX_HTTP_PORT=127.0.0.1:8080` so
+RagNex accepts connections only through the proxy.
+
+## Backups
+
+| Store | Holds | Back up? |
+|---|---|---|
+| Postgres (`pgdata`) | Users, workspaces, document records, chats, settings, workspace API keys | **Yes.** Everything else hangs off it. |
+| MinIO (`miniodata`) | The uploaded original files | **Yes.** They can't be recreated. |
+| OpenSearch (`opensearchdata`) | Search index: document chunks and their vectors | Recommended. It can be rebuilt by reprocessing every document, but that re-runs parsing and embedding, which is slow for large collections. |
+| Redis (`redisdata`) | Task queue and embedding cache | No. Losing it loses only queued work: documents being processed at that moment need to be reprocessed. |
+
+Back up Postgres and MinIO at about the same time, so document records and files match.
+For Postgres, `pg_dump` from the `postgres` container works while RagNex is running:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T postgres \
+  pg_dump -U ragnex -d ragnex -Fc > ragnex-$(date +%F).dump
+```
+
+For MinIO and OpenSearch, back up the volumes with the stack stopped, or use their own
+tools (`mc mirror`, OpenSearch snapshots). Test a restore before you rely on it.
+
+## Upgrading
+
+```bash
+git pull
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
+
+Database migrations run automatically before the new API and worker start. Back up
+Postgres first: migrations can't always be undone.
+
+## Go-live checklist
+
+**Before the first start**
+
+- [ ] `.env.prod` created from `.env.prod.example`, with generated secrets (see
+      [Generating them](#generating-them)), and `chmod 600`.
+- [ ] Models available where `OLLAMA_BASE_URL` (or the OpenAI or vLLM settings) point:
+      `ollama pull llama3` and `ollama pull bge-m3`, or your chosen models.
+- [ ] `EMBEDDING_DIMENSION` matches the embedding model. This is hard to change later.
+- [ ] `LLM_CONTEXT_WINDOW` set to the chat model's real context size.
+- [ ] `TENANT_MODEL_BASE_URLS` lists only endpoints you trust, or is left empty.
+- [ ] Enough resources: OpenSearch alone needs about twice `OPENSEARCH_HEAP` in memory. On
+      Linux it also needs `vm.max_map_count` of at least 262144
+      (`sysctl -w vm.max_map_count=262144`, and persisted in `/etc/sysctl.conf`).
+
+**Network**
+
+- [ ] TLS proxy in front, configured as in [Reverse proxy and TLS](#reverse-proxy-and-tls).
+- [ ] `RAGNEX_TRUSTED_PROXY` set to the proxy's address.
+- [ ] Only the proxy can reach `RAGNEX_HTTP_PORT` (`127.0.0.1:8080`, or a firewall rule).
+- [ ] No data store ports published. `docker-compose.prod.yml` publishes none; don't use
+      `docker-compose.dev.yml` on a server, because it publishes all of them without
+      passwords on Redis or OpenSearch.
+
+**Decide who can sign up**
+
+- [ ] Anyone who can reach the site can create an account, and each account gets its own
+      workspace that uses your models and storage. There is no setting to turn sign-up off
+      yet. If the site shouldn't be open to everyone, restrict access at the proxy (for
+      example a VPN, an IP allowlist or single sign-on in front of it).
+
+**After the first start**
+
+- [ ] All services healthy: `docker compose -f docker-compose.prod.yml --env-file .env.prod ps`.
+- [ ] Data stores reachable from the API. This shows `"ok": true` when they are:
+      ```bash
+      docker compose -f docker-compose.prod.yml --env-file .env.prod exec api \
+        python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8000/health/ready').read().decode())"
+      ```
+- [ ] Create an account, upload a small document, wait for it to show **Ready**, and ask a
+      question about it. This checks parsing, embedding, search and the chat model together.
+- [ ] A chat answer appears word by word, not all at once. If it arrives all at once, the
+      proxy is buffering.
+- [ ] Rate limits see real addresses: the address in `docker compose ... logs frontend` is a
+      client's, not the proxy's.
+- [ ] Backups scheduled, and one restore tested.

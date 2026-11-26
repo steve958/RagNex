@@ -5,13 +5,13 @@ import uuid
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from backend.app.core.config import settings
+# Fixed, not configurable: the web app and API clients send this exact header.
+TENANT_HEADER = "X-Tenant-ID"
 
 
 class TenantMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        tenant_header = settings.tenant_header
-        raw = request.headers.get(tenant_header)
+        raw = request.headers.get(TENANT_HEADER)
         request.state.tenant_id = None
         if raw:
             try:

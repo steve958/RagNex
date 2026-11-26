@@ -33,64 +33,83 @@ class OpenSearchService:
         alias = cls.get_index_name(tenant_id)
         return f"{alias}_v{cls.CHUNKS_SCHEMA_VERSION}-{seq:06d}"
 
-    def ensure_chunks_policy(self) -> None:
-        """Ensure an ISM policy exists for chunk indices.
+    # Set once the policy on the cluster is known to be current, so indexing and search don't
+    # check it on every call. Per process; a restart re-checks.
+    _policy_verified: bool = False
 
-        OpenSearch uses ISM (Index State Management) rather than Elasticsearch ILM.
-        """
+    @staticmethod
+    def _policy_description() -> str:
+        # The description records the settings the policy was built from, so a stored policy
+        # built from other settings (or the old 90-day-delete policy) is detected and replaced.
+        return (
+            "RagNex chunk indices: roll over at "
+            f"{settings.opensearch_chunks_rollover_min_size}; never deletes"
+        )
 
-        policy_id = str(getattr(settings, "opensearch_chunks_policy_id", "ragnex-chunks-policy"))
-
-        body = {
+    def _policy_body(self) -> dict:
+        return {
             "policy": {
-                "description": "RagNex chunk index lifecycle",
+                "description": self._policy_description(),
                 "default_state": "hot",
                 "states": [
                     {
                         "name": "hot",
-                        "actions": [
-                            {
-                                "rollover": {
-                                    "min_size": str(getattr(settings, "opensearch_chunks_rollover_min_size", "5gb")),
-                                    "min_index_age": str(getattr(settings, "opensearch_chunks_rollover_min_age", "7d")),
-                                }
-                            }
-                        ],
-                        "transitions": [
-                            {
-                                "state_name": "delete",
-                                "conditions": {
-                                    "min_index_age": str(getattr(settings, "opensearch_chunks_delete_min_age", "90d"))
-                                },
-                            }
-                        ],
-                    },
-                    {"name": "delete", "actions": [{"delete": {}}], "transitions": []},
-                ],
-                "ism_template": [
-                    {
-                        "index_patterns": ["chunks_*"],
-                        "priority": 100,
+                        # Size only: chunk indices hold a tenant's whole knowledge base, not
+                        # time-series data. There is deliberately no delete state: deleting an
+                        # index would drop documents from search while they still show as
+                        # ready. Documents are removed only by deleting them in RagNex.
+                        "actions": [{"rollover": {"min_size": str(settings.opensearch_chunks_rollover_min_size)}}],
+                        "transitions": [],
                     }
                 ],
+                "ism_template": [{"index_patterns": ["chunks_*"], "priority": 100}],
             }
         }
 
+    def ensure_chunks_policy(self) -> None:
+        """Create the ISM lifecycle policy for chunk indices, or replace an outdated one.
+
+        OpenSearch uses ISM (Index State Management) rather than Elasticsearch ILM.
+        """
+
+        if OpenSearchService._policy_verified:
+            return
+        policy_id = settings.opensearch_chunks_policy_id
+        url = f"/_plugins/_ism/policies/{policy_id}"
         client = self._client()
-        # Create-if-absent. ISM policy PUT is *not* idempotent: once the policy exists,
-        # OpenSearch answers 409 unless if_seq_no/if_primary_term are supplied. Changing
-        # rollover/delete settings for an existing policy therefore needs an explicit update.
+
         try:
-            client.transport.perform_request("PUT", f"/_plugins/_ism/policies/{policy_id}", body=body)
-        except ConflictError:
-            pass
+            current = client.transport.perform_request("GET", url)
+        except NotFoundError:
+            current = None
+
+        if current is None:
+            try:
+                client.transport.perform_request("PUT", url, body=self._policy_body())
+            except ConflictError:
+                pass  # created concurrently by another process
+        elif (current.get("policy") or {}).get("description") != self._policy_description():
+            # Updating needs the stored version (ISM rejects a plain PUT with 409).
+            client.transport.perform_request(
+                "PUT",
+                url,
+                params={"if_seq_no": current["_seq_no"], "if_primary_term": current["_primary_term"]},
+                body=self._policy_body(),
+            )
+            # Indices keep the policy version they started with, so re-attach them. Remove and
+            # add take effect at once; "change_policy" would wait for the current state to end.
+            # Only versioned backing indices: old-layout indices have no rollover alias.
+            client.transport.perform_request("POST", "/_plugins/_ism/remove/chunks_*")
+            client.transport.perform_request("POST", "/_plugins/_ism/add/chunks_*_v*", body={"policy_id": policy_id})
+
+        OpenSearchService._policy_verified = True
 
     def ensure_template(self) -> None:
         """Ensure an index template exists for chunk indices."""
 
         client = self._client()
 
-        policy_id = str(getattr(settings, "opensearch_chunks_policy_id", "ragnex-chunks-policy"))
+        policy_id = settings.opensearch_chunks_policy_id
 
         body = {
             "index_patterns": ["chunks_*"],

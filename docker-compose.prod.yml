@@ -40,6 +40,14 @@ x-backend: &backend
     OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
     VLLM_BASE_URL: ${VLLM_BASE_URL:-}
     TENANT_MODEL_BASE_URLS: ${TENANT_MODEL_BASE_URLS:-[]}
+    LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.2}
+    EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+    EMBEDDING_RPS: ${EMBEDDING_RPS:-5}
+    ACCESS_TOKEN_EXPIRES_MINUTES: ${ACCESS_TOKEN_EXPIRES_MINUTES:-30}
+    REFRESH_TOKEN_EXPIRES_DAYS: ${REFRESH_TOKEN_EXPIRES_DAYS:-14}
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    # Only the variables listed here reach the containers. To set another backend option
+    # (docs/configuration.md), add it to this list.
   extra_hosts:
     # Lets containers reach services on the Docker host (e.g. Ollama) on Linux too.
     - "host.docker.internal:host-gateway"
@@ -124,7 +132,8 @@ services:
       <<: *backend-env
       API_WORKERS: ${API_WORKERS:-2}
       # The API port isn't published: only nginx on the internal network can reach it,
-      # so trusting X-Forwarded-For from any peer is safe here.
+      # and nginx replaces X-Forwarded-For with the client IP it worked out (it never
+      # passes on what the client sent), so trusting the header from any peer is safe.
       FORWARDED_ALLOW_IPS: "*"
     depends_on:
       migrate:
@@ -168,6 +177,8 @@ services:
     environment:
       RAGNEX_API_UPSTREAM: api:8000
       RAGNEX_MAX_UPLOAD_MB: ${MAX_UPLOAD_SIZE_MB:-100}
+      # Your TLS proxy's address as seen by this container (see docs/deployment.md).
+      RAGNEX_TRUSTED_PROXY: ${RAGNEX_TRUSTED_PROXY:-127.0.0.1/32}
     ports:
       - "${RAGNEX_HTTP_PORT:-8080}:80"
     depends_on:

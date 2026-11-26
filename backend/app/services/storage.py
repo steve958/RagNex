@@ -28,6 +28,9 @@ class StorageObjectRef:
 class StorageService:
     def __init__(self) -> None:
         endpoint = settings.s3_endpoint_url
+        # An https:// endpoint means TLS even if S3_SECURE wasn't set; dropping the scheme
+        # alone would silently connect without it.
+        secure = settings.s3_secure or endpoint.startswith("https://")
         # Minio client wants host:port without scheme
         endpoint = endpoint.replace("https://", "").replace("http://", "")
 
@@ -35,7 +38,7 @@ class StorageService:
             endpoint,
             access_key=settings.s3_access_key,
             secret_key=settings.s3_secret_key,
-            secure=settings.s3_secure,
+            secure=secure,
             region=settings.s3_region,
         )
 

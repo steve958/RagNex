@@ -66,3 +66,23 @@ async def test_minio_roundtrip_smoke():
     assert isinstance(url, str) and url
 
     await svc.delete_file(tenant_id, key)
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "s3_secure", "expected"),
+    [
+        ("https://s3.example.com", False, True),  # the scheme alone turns TLS on
+        ("http://minio:9000", False, False),
+        ("minio:9000", True, True),
+    ],
+)
+def test_storage_uses_tls_for_https_endpoints(monkeypatch, endpoint, s3_secure, expected):
+    from backend.app.services import storage
+
+    seen = {}
+    monkeypatch.setattr(storage, "Minio", lambda host, **kw: seen.update(host=host, **kw))
+    monkeypatch.setattr(storage.settings, "s3_endpoint_url", endpoint)
+    monkeypatch.setattr(storage.settings, "s3_secure", s3_secure)
+    storage.StorageService()
+    assert seen["secure"] is expected
+    assert "://" not in seen["host"]
