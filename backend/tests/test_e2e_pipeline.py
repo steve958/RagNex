@@ -169,7 +169,7 @@ async def test_upload_to_streamed_answer(monkeypatch):
             # --- Account, tenant and knowledge bases --------------------------------------
             r = await client.post(
                 "/api/v1/auth/register",
-                json={"email": f"e2e_{uuid.uuid4().hex}@example.com", "password": "pw"},
+                json={"email": f"e2e_{uuid.uuid4().hex}@example.com", "password": "test-password-1"},
             )
             assert r.status_code == 200, r.text
             auth = {"Authorization": f"Bearer {r.json()['access_token']}"}

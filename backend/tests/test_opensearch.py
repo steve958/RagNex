@@ -31,7 +31,7 @@ async def test_create_tenant_calls_ensure_index(monkeypatch):
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.post(
             "/api/v1/auth/register",
-            json={"email": f"u_{uuid.uuid4().hex}@example.com", "password": "pw"},
+            json={"email": f"u_{uuid.uuid4().hex}@example.com", "password": "test-password-1"},
         )
         assert r.status_code == 200, r.text
         access = r.json()["access_token"]

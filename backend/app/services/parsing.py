@@ -105,8 +105,10 @@ def parse_document_binary(filename: str, binary: bytes, parser_config: dict | No
     else:
         raise ValueError(f"Unsupported file type: {ext}")
 
-    # Normalize: drop empties and ensure JSON-friendly
-    sections = [s for s in (s.strip() for s in sections) if s]
+    # Normalize: drop empties and ensure JSON-friendly. NUL bytes (seen in some PDFs) can't
+    # be stored in Postgres text and would fail the whole document.
+    sections = [s for s in (s.replace("\x00", "").strip() for s in sections) if s]
+    tables = [t.replace("\x00", "") if isinstance(t, str) else t for t in tables]
 
     return {
         "filename": filename,

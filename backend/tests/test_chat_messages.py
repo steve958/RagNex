@@ -25,7 +25,7 @@ async def test_chat_message_rag_flow_monkeypatched(monkeypatch):
     transport = httpx.ASGITransport(app=app)
 
     email = f"chatmsg_{uuid.uuid4().hex}@example.com"
-    password = "pw"
+    password = "test-password-1"
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         # Register user and obtain access token
@@ -117,7 +117,7 @@ async def test_chat_message_history_pagination():
     transport = httpx.ASGITransport(app=app)
 
     email = f"history_{uuid.uuid4().hex}@example.com"
-    password = "pw"
+    password = "test-password-1"
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         # Register user and obtain access token

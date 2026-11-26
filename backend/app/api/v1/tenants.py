@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.db import get_db
 from backend.app.core.deps import require_session_user
+from backend.app.core.validation import Name
 from backend.app.models.tenant import Tenant
 from backend.app.models.user import TenantMembership, User
 from backend.app.services.opensearch import OpenSearchService
@@ -30,11 +31,11 @@ router = APIRouter(prefix="/tenants")
 
 
 class TenantCreateRequest(BaseModel):
-    name: str
+    name: Name()
 
 
 class TenantUpdateRequest(BaseModel):
-    name: str
+    name: Name()
 
 
 @router.post("", response_model=dict)

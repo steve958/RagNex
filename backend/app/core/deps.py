@@ -93,6 +93,8 @@ async def _check_tenant_access(
 ) -> tuple[uuid.UUID, User]:
     tenant_id: uuid.UUID | None = getattr(request.state, "tenant_id", None)
     if tenant_id is None:
+        if request.headers.get(settings.tenant_header):
+            raise HTTPException(status_code=400, detail=f"Invalid {settings.tenant_header} header (expected a UUID)")
         raise HTTPException(status_code=400, detail=f"Missing {settings.tenant_header} header")
 
     key: APIKey | None = getattr(request.state, "api_key", None)

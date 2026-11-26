@@ -72,7 +72,7 @@ class Api:
 
     async def register(self) -> None:
         r = await self.client.post(
-            "/api/v1/auth/register", json={"email": f"del_{uuid.uuid4().hex}@example.com", "password": "pw"}
+            "/api/v1/auth/register", json={"email": f"del_{uuid.uuid4().hex}@example.com", "password": "test-password-1"}
         )
         assert r.status_code == 200, r.text
         auth = {"Authorization": f"Bearer {r.json()['access_token']}"}

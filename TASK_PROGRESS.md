@@ -592,7 +592,20 @@ Notes:
 - [x] Run SAST tools (Bandit, Semgrep) and dependency audits (pip-audit, npm audit)
 - [x] Test authentication
 - [x] Test authorization
-- [ ] Test input validation (partly: upload limits and model-settings validation are tested; no fuzzing)
+- [x] Test input validation (2026-11-26, `backend/tests/test_input_validation.py`)
+  - Hostile input sent to the real API found 14 kinds of input that crashed with a 500:
+    - NUL bytes in KB name and description, session prompt, API key name, workspace name and search query;
+    - over-long KB template, session name, API key name, workspace name and upload filename;
+    - a 2 MB password (passlib refuses it).
+  - Also accepted when it shouldn't have been: empty passwords, unknown KB templates, made-up API key scopes, multi-megabyte descriptions and system prompts, empty workspace names, and filenames with paths or direction-override characters (`invoice‮fdp.exe` displays as `invoiceexe.pdf`).
+  - Now:
+    - shared rules in `core/validation.py` (single-line names without control or invisible characters, bounded text, passwords 8-1024 on registration; login has no minimum so older accounts still work);
+    - a `Literal` for template and scopes, and at most 50 KBs per chat;
+    - `safe_filename` for uploads and storage keys;
+    - NUL stripped from parsed document text;
+    - a clear message for an invalid `X-Tenant-ID`;
+    - a safety net turning Postgres "data exception" errors (SQLSTATE 22*) into 422 while other database errors stay 500.
+  - The registration form enforces the minimum, and both auth pages show the server's validation messages.
 - [x] Review secret management
 
 Notes (2026-11-26 scan):

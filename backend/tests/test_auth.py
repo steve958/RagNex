@@ -75,7 +75,7 @@ async def test_expired_access_token_is_rejected_and_refresh_issues_working_token
     transport = httpx.ASGITransport(app=create_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.post(
-            "/api/v1/auth/register", json={"email": f"refresh_{uuid.uuid4().hex}@example.com", "password": "pw"}
+            "/api/v1/auth/register", json={"email": f"refresh_{uuid.uuid4().hex}@example.com", "password": "test-password-1"}
         )
         assert r.status_code == 200, r.text
         refresh_token = r.json()["refresh_token"]

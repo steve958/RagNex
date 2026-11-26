@@ -17,11 +17,11 @@ async def test_cross_tenant_access_forbidden():
     email2 = f"u2_{uuid.uuid4().hex}@example.com"
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        r = await client.post("/api/v1/auth/register", json={"email": email1, "password": "pw"})
+        r = await client.post("/api/v1/auth/register", json={"email": email1, "password": "test-password-1"})
         assert r.status_code == 200
         t1 = r.json()["access_token"]
 
-        r = await client.post("/api/v1/auth/register", json={"email": email2, "password": "pw"})
+        r = await client.post("/api/v1/auth/register", json={"email": email2, "password": "test-password-1"})
         assert r.status_code == 200
         t2 = r.json()["access_token"]
 

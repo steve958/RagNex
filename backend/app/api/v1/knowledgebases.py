@@ -3,11 +3,14 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from typing import Literal
+
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.db import get_db
+from backend.app.core.validation import Name, Text
 from backend.app.core.deps import require_tenant_membership, require_tenant_read
 from backend.app.models.document import Document
 from backend.app.models.knowledge_base import KnowledgeBase
@@ -17,16 +20,21 @@ from backend.app.tasks.purge import enqueue_purges
 router = APIRouter(prefix="/knowledgebases")
 
 
+# Chunking templates that exist (services/chunking/); anything else used to be stored and
+# silently treated as "general".
+Template = Literal["general", "laws", "paper"]
+
+
 class KnowledgeBaseCreateRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
-    description: str | None = None
-    template: str = Field(default="general")
+    name: Name()
+    description: Text(10_000) | None = None
+    template: Template = "general"
 
 
 class KnowledgeBaseUpdateRequest(BaseModel):
-    name: str | None = Field(default=None, max_length=255)
-    description: str | None = None
-    template: str | None = None
+    name: Name() | None = None
+    description: Text(10_000) | None = None
+    template: Template | None = None
 
 
 class KnowledgeBaseResponse(BaseModel):
@@ -169,7 +177,7 @@ async def delete_knowledge_base(
 
 
 class SearchRequest(BaseModel):
-    query: str = Field(min_length=1, max_length=10_000)
+    query: Text(10_000) = Field(min_length=1)
     top_k: int = Field(default=10, ge=1, le=100)
 
     # Optional knobs

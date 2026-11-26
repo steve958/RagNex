@@ -15,6 +15,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.db import get_db, get_engine
+from backend.app.core.validation import Name, Text
 from backend.app.core.deps import require_tenant_membership
 from backend.app.models.chat import ChatMessage, ChatSession
 from backend.app.models.knowledge_base import KnowledgeBase
@@ -33,9 +34,10 @@ router = APIRouter(prefix="/chat")
 
 
 class CreateSessionRequest(BaseModel):
-    kb_ids: list[uuid.UUID] = Field(min_length=1)
-    system_prompt: str | None = None
-    name: str | None = None
+    kb_ids: list[uuid.UUID] = Field(min_length=1, max_length=50)
+    # Sent with every message, so bounded well below the context window.
+    system_prompt: Text(10_000) | None = None
+    name: Name() | None = None
 
 
 class ChatSessionResponse(BaseModel):
@@ -54,7 +56,7 @@ class Citation(BaseModel):
 
 
 class ChatMessageRequest(BaseModel):
-    content: str = Field(min_length=1, max_length=10_000)
+    content: Text(10_000) = Field(min_length=1)
     top_k: int = Field(default=6, ge=1, le=20)
 
 

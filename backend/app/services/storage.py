@@ -11,6 +11,7 @@ from minio import Minio
 from minio.error import S3Error
 
 from backend.app.core.config import settings
+from backend.app.core.validation import safe_filename
 from backend.app.services.parsing import SUPPORTED_EXTENSIONS
 
 
@@ -68,8 +69,9 @@ class StorageService:
 
     @staticmethod
     def _object_key(filename: str) -> str:
-        safe_name = os.path.basename(filename)
-        return f"{uuid.uuid4().hex}/{safe_name}"
+        # safe_filename drops path components for both / and \ (os.path.basename only
+        # handles the platform's own separator) and control characters.
+        return f"{uuid.uuid4().hex}/{safe_filename(filename)}"
 
     async def upload_file(self, tenant_id: uuid.UUID, file: UploadFile) -> str:
         """Upload a file into the tenant bucket.

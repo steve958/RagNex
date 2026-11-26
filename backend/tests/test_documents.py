@@ -18,7 +18,7 @@ async def test_upload_document_creates_row_and_enqueues(monkeypatch):
     transport = httpx.ASGITransport(app=app)
 
     email = f"u_{uuid.uuid4().hex}@example.com"
-    password = "pw"
+    password = "test-password-1"
 
     # Patch storage upload to avoid requiring local MinIO.
     async def fake_upload(self, tenant_id, file):
@@ -80,7 +80,7 @@ async def test_upload_document_rejects_extension(monkeypatch):
     transport = httpx.ASGITransport(app=app)
 
     email = f"u_{uuid.uuid4().hex}@example.com"
-    password = "pw"
+    password = "test-password-1"
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.post("/api/v1/auth/register", json={"email": email, "password": password})

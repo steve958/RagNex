@@ -3,12 +3,13 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.db import get_db
 from backend.app.core.deps import get_current_user
+from backend.app.core.validation import NewPassword, Password
 from backend.app.core.security import PasswordHasher, TokenService
 from backend.app.models.tenant import Tenant
 from backend.app.models.user import TenantMembership, User
@@ -23,12 +24,12 @@ token_service = TokenService()
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: NewPassword  # 8-1024 characters
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: Password  # no minimum, so accounts created before the rule can still log in
 
 
 class TokenResponse(BaseModel):
@@ -82,7 +83,7 @@ async def login(request: Request, req: LoginRequest, db: AsyncSession = Depends(
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str = Field(max_length=4096)
 
 
 @router.post("/refresh", response_model=TokenResponse)

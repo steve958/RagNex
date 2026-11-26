@@ -18,7 +18,7 @@ async def test_chat_session_crud_flow():
     transport = httpx.ASGITransport(app=app)
 
     email = f"chat_{uuid.uuid4().hex}@example.com"
-    password = "pw"
+    password = "test-password-1"
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         # Register user and get access token
@@ -109,7 +109,7 @@ async def test_chat_session_rejects_unknown_kb():
     transport = httpx.ASGITransport(app=app)
 
     email = f"chat_{uuid.uuid4().hex}@example.com"
-    password = "pw"
+    password = "test-password-1"
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.post("/api/v1/auth/register", json={"email": email, "password": password})

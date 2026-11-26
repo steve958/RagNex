@@ -33,7 +33,7 @@ def _parse_sse(body: str) -> list[tuple[str, dict]]:
 async def _setup_session(client: httpx.AsyncClient) -> tuple[dict, uuid.UUID]:
     """Register a user, create a KB and a chat session. Returns (headers, session_id)."""
     email = f"stream_{uuid.uuid4().hex}@example.com"
-    r = await client.post("/api/v1/auth/register", json={"email": email, "password": "pw"})
+    r = await client.post("/api/v1/auth/register", json={"email": email, "password": "test-password-1"})
     assert r.status_code == 200, r.text
     access = r.json()["access_token"]
 

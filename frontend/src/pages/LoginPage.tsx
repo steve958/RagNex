@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { NoTenantError, useAuth } from '../store/auth';
+import { errorDetail } from '../services/errors';
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
@@ -18,9 +19,8 @@ export const LoginPage: React.FC = () => {
     try {
       await login(email, password);
       navigate('/');
-    } catch (err: any) {
-      const msg = err instanceof NoTenantError ? err.message : err?.response?.data?.detail ?? 'Login failed';
-      setError(typeof msg === 'string' ? msg : 'Login failed');
+    } catch (err: unknown) {
+      setError(err instanceof NoTenantError ? err.message : errorDetail(err, 'Login failed'));
     } finally {
       setSubmitting(false);
     }
