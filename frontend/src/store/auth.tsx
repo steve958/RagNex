@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { apiClient, setAccessToken, setTenantId } from '../services/apiClient';
+import { apiClient, setAccessToken, setRefreshHandler, setTenantId } from '../services/apiClient';
 import { TenantSummary } from '../services/tenantsApi';
 
 export interface AuthState {
@@ -57,13 +57,18 @@ export class NoTenantError extends Error {
   }
 }
 
-/** Pick the tenant to work in. Users currently get one personal tenant on registration. */
-const resolveTenantId = async (token: string): Promise<string | null> => {
+/** Pick the tenant to work in. Users currently get one personal tenant on registration.
+ *  `allowRefresh=false` for a token that doesn't belong to the stored session (login),
+ *  so a 401 can't trigger a refresh with the previous user's refresh token. */
+const resolveTenantId = async (token: string, allowRefresh: boolean): Promise<string | null> => {
   const res = await apiClient.get<TenantSummary[]>('/api/v1/tenants', {
     headers: { Authorization: `Bearer ${token}` },
+    skipAuthRefresh: !allowRefresh,
   });
   return res.data[0]?.id ?? null;
 };
+
+type TokenPair = { access_token: string; refresh_token: string };
 
 export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
   const queryClient = useQueryClient();
@@ -75,8 +80,11 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     setTenantId(stored?.tenantId ?? null);
     return stored;
   });
+  // Latest auth, readable from async callbacks without waiting for a re-render.
+  const authRef = useRef(auth);
 
   const apply = (next: StoredAuth | null) => {
+    authRef.current = next;
     setAccessToken(next?.accessToken ?? null);
     setTenantId(next?.tenantId ?? null);
     saveStoredAuth(next);
@@ -90,16 +98,42 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     apply(next);
   };
 
+  // Exchange the refresh token for new tokens (called by apiClient on a 401). Returns the
+  // new access token, or null. Only a rejected refresh token ends the session; a network
+  // error just fails the request that triggered it.
+  const refreshTokens = async (): Promise<string | null> => {
+    const current = authRef.current;
+    if (!current) return null;
+    try {
+      const res = await apiClient.post<TokenPair>('/api/v1/auth/refresh', {
+        refresh_token: current.refreshToken,
+      });
+      // Re-read: the user may have logged out (or in as someone else) meanwhile.
+      if (authRef.current?.refreshToken !== current.refreshToken) return null;
+      apply({ ...current, accessToken: res.data.access_token, refreshToken: res.data.refresh_token });
+      return res.data.access_token;
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response?.status;
+      if ((status === 401 || status === 403) && authRef.current === current) switchIdentity(null);
+      return null;
+    }
+  };
+  // Registered during render, not in an effect: children's queries start before this
+  // component's effects run, and after a reload they may already need a refresh.
+  setRefreshHandler(refreshTokens);
+
   // Sessions stored before tenant support have tokens but no tenant: resolve it once.
   useEffect(() => {
     if (!auth || auth.tenantId) return;
     let cancelled = false;
-    resolveTenantId(auth.accessToken)
+    resolveTenantId(auth.accessToken, true)
       .then((tenantId) => {
-        if (cancelled) return;
+        const latest = authRef.current;
+        if (cancelled || !latest) return;
         // No tenant: log out rather than store tenantId=null again, which would re-run
         // this effect forever. The login form then explains the problem.
-        if (tenantId) apply({ ...auth, tenantId });
+        // `latest`, not `auth`: a token refresh may have happened during the lookup.
+        if (tenantId) apply({ ...latest, tenantId });
         else switchIdentity(null);
       })
       .catch(() => {
@@ -112,12 +146,9 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
   }, [auth]);
 
   const authenticate = async (path: string, email: string, password: string) => {
-    const res = await apiClient.post(path, { email, password });
-    const { access_token, refresh_token } = res.data as {
-      access_token: string;
-      refresh_token: string;
-    };
-    const tenantId = await resolveTenantId(access_token);
+    const res = await apiClient.post<TokenPair>(path, { email, password });
+    const { access_token, refresh_token } = res.data;
+    const tenantId = await resolveTenantId(access_token, false);
     if (!tenantId) throw new NoTenantError();
     switchIdentity({ email, accessToken: access_token, refreshToken: refresh_token, tenantId });
   };

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { setAccessToken, setTenantId } from './apiClient';
+import { setAccessToken, setRefreshHandler, setTenantId } from './apiClient';
 import { streamChatMessage } from './chatApi';
 
 const sse = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -71,6 +71,42 @@ describe('streamChatMessage', () => {
       ),
     );
     await expect(streamChatMessage('s1', { content: 'hi' })).rejects.toThrow('Generation failed: ConnectError');
+  });
+
+  it('refreshes an expired token and retries the stream once', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: 'Invalid token' }), { status: 401 }))
+      .mockResolvedValueOnce(streamingResponse([sse('done', assistantMsg)]));
+    vi.stubGlobal('fetch', fetchMock);
+    setAccessToken('expired');
+    setTenantId('tenant-1');
+    const refresh = vi.fn(async () => {
+      setAccessToken('fresh');
+      return 'fresh';
+    });
+    setRefreshHandler(refresh);
+
+    await expect(streamChatMessage('s1', { content: 'hi' })).resolves.toEqual(assistantMsg);
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer expired');
+    expect(fetchMock.mock.calls[1][1].headers).toMatchObject({ Authorization: 'Bearer fresh', 'X-Tenant-ID': 'tenant-1' });
+    setRefreshHandler(null);
+  });
+
+  it('surfaces the 401 when the token cannot be refreshed', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ detail: 'Invalid token' }), { status: 401 }));
+    vi.stubGlobal('fetch', fetchMock);
+    setAccessToken('expired');
+    setRefreshHandler(async () => null);
+
+    await expect(streamChatMessage('s1', { content: 'hi' })).rejects.toThrow('Invalid token');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    setRefreshHandler(null);
   });
 
   it('rejects with the HTTP error detail before streaming starts', async () => {

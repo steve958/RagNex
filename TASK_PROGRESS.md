@@ -474,7 +474,7 @@ Notes:
 - [x] Create Registration page
 - [x] Implement auth store/context
 - [x] Add protected route wrapper
-- [ ] Implement token refresh logic (partial: tokens persisted and attached; background refresh deferred)
+- [x] Implement token refresh logic
 - [x] Create user menu (profile email + logout)
 
 Notes:
@@ -483,6 +483,7 @@ Notes:
 - 2026-01-15: Introduced a `ProtectedRoute` wrapper in `App.tsx` so the dashboard is only accessible when authenticated.
 - 2026-01-15: Updated `AppLayout` to show the current user's email and a Logout button instead of Login/Register when authenticated.
 - 2026-01-15: Full token refresh flow (`/api/v1/auth/refresh` on expiry) is deferred to a later enhancement; current implementation expects the backend tokens to remain valid during a normal session.
+- 2026-11-26: Token refresh on 401. `apiClient` refreshes and retries each request once, and concurrent failures share a single `/auth/refresh` call. A request sent with a token that's already been replaced retries without another refresh. Login, register and refresh are never retried. Streaming chat (`fetch`) gets the same handling. The auth store saves rotated tokens and logs out only if the refresh token is rejected, not on network errors. The handler is registered during render, so the first queries after a reload can refresh. Backend contract test in `test_auth.py`.
 
 ### P5-3: Knowledge Base Management UI
 - [x] Create Knowledge Base list page
