@@ -49,7 +49,8 @@ jobs:
         env:
           discovery.type: single-node
           plugins.security.disabled: "true"
-          OPENSEARCH_INITIAL_ADMIN_PASSWORD: Ci-Only-Admin-123!
+          # OpenSearch refuses to start with a password resembling the user name "admin".
+          OPENSEARCH_INITIAL_ADMIN_PASSWORD: Ragnex-Ci-7f3k-Pass!
           OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
         ports: ["9200:9200"]
         options: >-

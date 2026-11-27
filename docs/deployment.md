@@ -41,7 +41,8 @@ Use hex (letters and digits only) for `POSTGRES_PASSWORD`: compose puts it insid
 database URL, where characters such as `@`, `:`, `/` or `#` break the connection.
 
 `OPENSEARCH_INITIAL_ADMIN_PASSWORD` is only demanded by the OpenSearch image. It needs upper
-and lower case, a digit and a symbol (for example `Ragnex-` followed by `openssl rand -hex 8`).
+and lower case, a digit and a symbol, and must not resemble the user name `admin` (for
+example `Ragnex-` followed by `openssl rand -hex 8`); otherwise OpenSearch refuses to start.
 RagNex never uses it.
 
 ### Rotating secrets

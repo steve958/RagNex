@@ -26,7 +26,7 @@ For secrets and going live, see [deployment.md](deployment.md).
 | `RAGNEX_ENCRYPTION_PREVIOUS_KEYS` | `[]` | yes | Old encryption keys still accepted for reading, as a JSON list, while rotating to a new `RAGNEX_ENCRYPTION_KEY`. Empty otherwise. |
 | `POSTGRES_PASSWORD` | none in prod, `ragnex` in dev | required | Database password. It is only applied **when the database volume is first created**; see [rotation](deployment.md#rotating-secrets) to change it later. |
 | `MINIO_ROOT_PASSWORD` | none in prod, `minioadmin` in dev | required | Object storage password. Prod compose passes it to the backend as `S3_SECRET_KEY`. |
-| `OPENSEARCH_INITIAL_ADMIN_PASSWORD` | none in prod | required | Demanded by the OpenSearch image at first start (8+ characters with upper, lower, digit and symbol). RagNex doesn't use it: the bundled OpenSearch has its security plugin off and is reachable only on the internal network. |
+| `OPENSEARCH_INITIAL_ADMIN_PASSWORD` | none in prod | required | Demanded by the OpenSearch image at first start (8+ characters with upper, lower, digit and symbol, not resembling `admin`, or OpenSearch exits). RagNex doesn't use it: the bundled OpenSearch has its security plugin off and is reachable only on the internal network. |
 
 ## Models
 
