@@ -108,10 +108,11 @@ again.
 
 Only workspace owners can; members see them read-only.
 
-### The web app shows the wrong workspace
+### I can't find a knowledge base or chat
 
-The web app works in the first workspace you belong to; it can't switch yet. Use the
-[API](api.md#choosing-the-workspace) for other workspaces.
+It's probably in another workspace. Switch with the workspace menu at the top of the page
+or under **Settings → Workspace**. If you were removed from a workspace, its data is no
+longer visible to you; the app moves you to one you still belong to.
 
 ## For administrators
 

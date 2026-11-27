@@ -47,8 +47,10 @@ Requests about knowledge bases, documents, search and chat act in one workspace,
 the `X-Tenant-ID` header. List yours with `GET /api/v1/tenants`:
 
 ```json
-[{"id": "3f9c2a6e-...", "name": "alice@example.com's tenant"}]
+[{"id": "3f9c2a6e-...", "name": "alice@example.com's tenant", "role": "owner"}]
 ```
+
+`role` is your role there: `owner` or `member`.
 
 With an API key, `X-Tenant-ID` must be the key's own workspace.
 
@@ -224,7 +226,8 @@ These need a signed-in user (`Authorization: Bearer ...`), not an API key.
 |---|---|
 | `POST /tenants` with `{"name": "..."}` | Creates a workspace; you become its owner. |
 | `PUT /tenants/{id}` / `DELETE /tenants/{id}` | Renames / deletes a workspace (owners). |
-| `POST /tenants/{id}/members` with `{"user_id": "...", "role": "member"}` | Adds an existing user, or changes their role (owners). Roles: `member`, `owner`. |
+| `GET /tenants/{id}/members` | Lists members: `user_id`, `email`, `role` (any member). |
+| `POST /tenants/{id}/members` with `{"email": "...", "role": "member"}` | Adds a user who has an account, or changes their role (owners). Name them by `email` or `user_id`. Roles: `member`, `owner`. |
 | `PUT /tenants/{id}/members/{user_id}` with `{"role": "owner"}` | Changes a role (owners). |
 | `DELETE /tenants/{id}/members/{user_id}` | Removes a member (owners). A workspace always keeps at least one owner. |
 | `GET` / `PUT /tenants/{id}/model-settings` | The workspace's model settings; see the reference for the fields. |

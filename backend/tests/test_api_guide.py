@@ -36,7 +36,8 @@ async def test_signing_in_and_choosing_the_workspace(pipeline):
         bearer = {"Authorization": f"Bearer {tokens['access_token']}"}
 
         workspaces = (await api.client.get("/api/v1/tenants", headers=bearer)).json()
-        assert set(workspaces[0]) == {"id", "name"} and workspaces[0]["name"] == f"{email}'s tenant"
+        assert set(workspaces[0]) == {"id", "name", "role"} and workspaces[0]["name"] == f"{email}'s tenant"
+        assert workspaces[0]["role"] == "owner"
 
         r = await api.client.post("/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]})
         assert r.status_code == 200 and "access_token" in r.json()

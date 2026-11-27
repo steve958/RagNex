@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 
 import { useRegistrationInfo } from '../../services/registrationApi';
 import { useAuth } from '../../store/auth';
+import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 export const AppLayout: React.FC<React.PropsWithChildren> = ({ children }) => {
   const { user, isAuthenticated, logout } = useAuth();
@@ -40,6 +41,7 @@ export const AppLayout: React.FC<React.PropsWithChildren> = ({ children }) => {
                 Settings
               </Link>
               <div className="flex items-center gap-3">
+                <WorkspaceSwitcher />
                 <span className="text-xs text-slate-400">{user?.email}</span>
                 <button
                   type="button"
@@ -75,6 +77,7 @@ export const AppLayout: React.FC<React.PropsWithChildren> = ({ children }) => {
               Settings
             </Link>
           </div>
+          <WorkspaceSwitcher id="workspace-switcher-mobile" />
           <div className="flex items-center justify-between">
             <span className="text-slate-400">{user?.email}</span>
             <button

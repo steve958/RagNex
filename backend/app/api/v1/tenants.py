@@ -6,7 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 import anyio
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, model_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,13 +71,16 @@ async def list_tenants(
     db: AsyncSession = Depends(get_db),
 ):
     res = await db.execute(
-        select(Tenant).join(TenantMembership, TenantMembership.tenant_id == Tenant.id).where(
+        select(Tenant, TenantMembership.role)
+        .join(TenantMembership, TenantMembership.tenant_id == Tenant.id)
+        .where(
             TenantMembership.user_id == current_user.id,
             Tenant.deleted_at.is_(None),
         )
+        .order_by(Tenant.created_at)
     )
-    tenants = res.scalars().all()
-    return [{"id": t.id, "name": t.name} for t in tenants]
+    # role: the current user's role in each workspace.
+    return [{"id": t.id, "name": t.name, "role": role} for t, role in res.all()]
 
 
 async def _require_membership(db: AsyncSession, tenant_id: uuid.UUID, user_id: uuid.UUID) -> TenantMembership:
@@ -150,8 +153,35 @@ Role = Literal["member", "owner"]
 
 
 class AddMemberRequest(BaseModel):
-    user_id: uuid.UUID
+    """The user to add, by user_id or by email (exactly one). Adding an existing member
+    changes their role."""
+
+    user_id: uuid.UUID | None = None
+    email: EmailStr | None = None
     role: Role = "member"
+
+    @model_validator(mode="after")
+    def _one_way_to_name_the_user(self) -> "AddMemberRequest":
+        if (self.user_id is None) == (self.email is None):
+            raise ValueError("Give either user_id or email")
+        return self
+
+
+@router.get("/{tenant_id}/members", response_model=list[dict])
+async def list_members(
+    tenant_id: uuid.UUID,
+    current_user: User = Depends(require_session_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The workspace's members: owners first, then by email. Any member may list them."""
+    await _require_membership(db, tenant_id, current_user.id)
+    rows = await db.execute(
+        select(User.id, User.email, TenantMembership.role)
+        .join(TenantMembership, TenantMembership.user_id == User.id)
+        .where(TenantMembership.tenant_id == tenant_id, User.deleted_at.is_(None))
+        .order_by((TenantMembership.role == "owner").desc(), func.lower(User.email))
+    )
+    return [{"user_id": uid, "email": email, "role": role} for uid, email, role in rows.all()]
 
 
 async def _ensure_an_owner_remains(db: AsyncSession, membership: TenantMembership, new_role: str | None) -> None:
@@ -180,25 +210,31 @@ async def add_member(
     if cur.role != "owner":
         raise HTTPException(status_code=403, detail="Only owner can add members")
 
-    # ensure user exists
-    res = await db.execute(select(User).where(User.id == req.user_id, User.deleted_at.is_(None)))
-    if res.scalar_one_or_none() is None:
-        raise HTTPException(status_code=404, detail="User not found")
+    # The user must have an account already.
+    if req.email is not None:
+        found = select(User).where(func.lower(User.email) == req.email.lower(), User.deleted_at.is_(None))
+        not_found = "No account uses that email. They need an account first: sign-up, or ask the administrator."
+    else:
+        found = select(User).where(User.id == req.user_id, User.deleted_at.is_(None))
+        not_found = "User not found"
+    user = (await db.execute(found)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail=not_found)
 
     # upsert membership
     res = await db.execute(
-        select(TenantMembership).where(TenantMembership.tenant_id == tenant_id, TenantMembership.user_id == req.user_id)
+        select(TenantMembership).where(TenantMembership.tenant_id == tenant_id, TenantMembership.user_id == user.id)
     )
     m = res.scalar_one_or_none()
     if m is None:
-        m = TenantMembership(tenant_id=tenant_id, user_id=req.user_id, role=req.role)
+        m = TenantMembership(tenant_id=tenant_id, user_id=user.id, role=req.role)
         db.add(m)
     else:
         await _ensure_an_owner_remains(db, m, req.role)
         m.role = req.role
 
     await db.commit()
-    return {"ok": True}
+    return {"ok": True, "user_id": user.id, "email": user.email, "role": req.role}
 
 
 @router.delete("/{tenant_id}/members/{user_id}", response_model=dict)
