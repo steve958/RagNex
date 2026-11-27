@@ -103,15 +103,17 @@ Requirements: Python 3.13, Node 22, Docker.
 docker compose -f docker-compose.dev.yml up -d
 cp .env.example .env          # then set JWT_SECRET and RAGNEX_ENCRYPTION_KEY; all settings: docs/configuration.md
 
-# Backend: installs dependencies only; code is imported as `backend.app.*` from the repo root
+# Backend: installs the exact versions in backend/uv.lock into the active venv; code is
+# imported as `backend.app.*` from the repo root
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\Activate.ps1
-pip install -e "./backend[dev,deepdoc]"
+pip install uv
+uv sync --project backend --active --locked --extra dev --extra deepdoc   # add --extra deepdoc-vision for OCR
 alembic -c backend/alembic.ini upgrade head
 python -m uvicorn backend.app.main:create_app --factory --reload           # API on :8000
 celery -A backend.app.core.celery_app.celery_app worker -Q default,parsing,embedding,indexing --loglevel=info
 
 # Frontend (Vite proxies /api to :8000)
-cd frontend && npm install && npm run dev                                  # http://localhost:5173
+cd frontend && npm ci && npm run dev                                       # http://localhost:5173
 ```
 
 Run all commands from the repo root unless noted. On Windows, add `--pool=solo` to the
@@ -127,6 +129,18 @@ cd frontend && npm test -- --run     # npm test alone starts watch mode
 cd backend && python -m pytest --cov
 cd frontend && npm test -- --run --coverage
 ```
+
+### CI and dependencies
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the backend tests against real Postgres,
+Redis, OpenSearch and MinIO, the DeepDoc tests, and the frontend tests and build, on every
+pull request and push. Pushes to `master` and version tags then publish both images to
+`ghcr.io` ([prebuilt images](docs/deployment.md#prebuilt-images)).
+
+Dependency versions are pinned: `backend/uv.lock` for Python, `frontend/package-lock.json`
+for the web app. To add or upgrade a Python dependency, edit `backend/pyproject.toml`, then
+run `uv lock` in `backend/` (`uv lock --upgrade-package NAME` to move one package to its
+newest version) and commit both files. CI fails if the lockfile doesn't match.
 
 ### Maintenance
 - `python -m backend.app.services.accounts create-user EMAIL [--workspace ID]`: creates an

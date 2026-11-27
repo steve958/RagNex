@@ -16,16 +16,24 @@ ARG PYTHON_VERSION=3.13
 FROM python:${PYTHON_VERSION}-slim AS deps
 
 ARG EXTRAS="deepdoc"
+ARG UV_VERSION=0.13.10
 ENV PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_LINK_MODE=copy \
+    UV_NO_CACHE=1
 
-RUN python -m venv /opt/venv
+RUN python -m venv /opt/venv && pip install "uv==${UV_VERSION}"
 ENV PATH=/opt/venv/bin:$PATH
 
-# Only the dependency manifest, so code changes don't invalidate this layer. The project
-# installs no modules of its own (py-modules = []), just its dependencies.
-COPY backend/pyproject.toml /tmp/build/
-RUN pip install "/tmp/build[${EXTRAS}]"
+# Only the dependency manifest and lockfile, so code changes don't invalidate this layer.
+# --frozen installs exactly the versions in uv.lock (fails if it's missing a package);
+# --no-install-project: the project has no modules of its own, just dependencies. uv itself
+# goes into the build stage's system Python, not the venv that's copied to the image.
+COPY backend/pyproject.toml backend/uv.lock /tmp/build/
+WORKDIR /tmp/build
+RUN uv sync --frozen --no-install-project $(echo "${EXTRAS}" | tr ',' ' ' | xargs -n1 printf -- '--extra %s ')
 
 # --- Runtime ----------------------------------------------------------------------------
 FROM python:${PYTHON_VERSION}-slim
@@ -52,9 +60,11 @@ COPY docker/backend-entrypoint.sh /usr/local/bin/ragnex
 # the app, the Celery tasks or any document parser can't be imported. DeepDoc disables a
 # parser silently when a dependency is missing, which would otherwise only show up as
 # failed uploads in production.
-# (The JWT_SECRET here exists only for this import check and is not kept in the image.)
+# (The JWT_SECRET and RAGNEX_ENCRYPTION_KEY here exist only for this import check and are
+# not kept in the image.)
 RUN sed -i 's/\r$//' /usr/local/bin/ragnex && chmod 0755 /usr/local/bin/ragnex \
- && JWT_SECRET=build-time-import-check-only-not-a-real-secret python -c "\
+ && JWT_SECRET=build-time-import-check-only-not-a-real-secret \
+    RAGNEX_ENCRYPTION_KEY=YnVpbGQtdGltZS1pbXBvcnQtY2hlY2stb25seSEhISE= python -c "\
 import backend.app.main; \
 from backend.app.core.celery_app import celery_app; \
 celery_app.loader.import_default_modules(); \

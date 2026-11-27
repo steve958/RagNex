@@ -173,9 +173,18 @@ tools (`mc mirror`, OpenSearch snapshots). Test a restore before you rely on it.
 
 ## Upgrading
 
+Building locally:
+
 ```bash
 git pull
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
+
+Or with the images CI publishes (see [Prebuilt images](#prebuilt-images)):
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
 Database migrations run automatically before the new API and worker start. Back up
@@ -184,6 +193,28 @@ Postgres first: migrations can't always be undone.
 **Upgrading from a version without `RAGNEX_ENCRYPTION_KEY`:** add it to `.env.prod` first
 (`openssl rand -base64 32`). Compose refuses to start without it, and the upgrade encrypts
 the workspace model API keys already stored.
+
+## Prebuilt images
+
+Every push to `master` that passes the tests publishes both images to the GitHub Container
+Registry, and so does every version tag (`v1.2.3`):
+
+| Image | Tags |
+|---|---|
+| `ghcr.io/OWNER/ragnex-backend` | `latest` and `master` (newest `master`), `sha-abc1234` (one commit), `1.2.3` and `1.2` (releases) |
+| `ghcr.io/OWNER/ragnex-frontend` | the same |
+
+To use them, set in `.env.prod`:
+
+```bash
+RAGNEX_IMAGE_PREFIX=ghcr.io/OWNER/
+RAGNEX_VERSION=1.2.3        # pin a release or commit in production rather than latest
+```
+
+Images of a private repository are private too: log in first with
+`docker login ghcr.io` (a GitHub personal access token with `read:packages`).
+
+To publish a release: `git tag v1.2.3 && git push origin v1.2.3`.
 
 ## Go-live checklist
 
