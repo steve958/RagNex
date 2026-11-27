@@ -25,8 +25,10 @@ RUN npm run build
 
 FROM nginx:1.27-alpine
 ENV RAGNEX_API_UPSTREAM=api:8000 \
-    RAGNEX_MAX_UPLOAD_MB=100     RAGNEX_TRUSTED_PROXY=127.0.0.1/32
+    RAGNEX_MAX_UPLOAD_MB=100 \
+    RAGNEX_TRUSTED_PROXY=127.0.0.1/32
 # Rendered with envsubst at container start by the official image's entrypoint.
 COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /src/dist /usr/share/nginx/html
+COPY LICENSE NOTICE /usr/share/doc/ragnex/
 EXPOSE 80

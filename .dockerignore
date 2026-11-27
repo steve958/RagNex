@@ -1,4 +1,5 @@
-# Build context is the repo root; only backend/, deepdoc/, frontend/ and docker/ are used.
+# Build context is the repo root; only backend/, deepdoc/, frontend/, docker/ and the
+# LICENSE and NOTICE files are used.
 
 # Secrets and local environments
 .env

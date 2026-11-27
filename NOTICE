@@ -1,0 +1,42 @@
+RagNex
+Copyright (c) 2025-2026 Stefan Miljevic
+
+RagNex is licensed under the MIT License (see LICENSE), except for the code
+described below.
+
+-------------------------------------------------------------------------------
+DeepDoc (deepdoc/)
+-------------------------------------------------------------------------------
+
+The deepdoc/ directory is derived from DeepDoc, part of RAGFlow
+(https://github.com/infiniflow/ragflow):
+
+    Copyright 2024-2025 The InfiniFlow Authors. All Rights Reserved.
+
+It is licensed under the Apache License, Version 2.0 (see deepdoc/LICENSE),
+not under the MIT License. Files carrying The InfiniFlow Authors' copyright
+header come from RAGFlow and may have been modified for RagNex; the changes are
+recorded in this repository's history. deepdoc/common/, deepdoc/nlp/ and
+deepdoc/parser/pdf_parser.py were written for RagNex to replace RAGFlow
+internals, and are provided under the Apache License, Version 2.0 as part of
+deepdoc/.
+
+When OCR or layout recognition is enabled, DeepDoc downloads model files from
+the InfiniFlow/deepdoc repository on Hugging Face at runtime. They are not part
+of this repository and are covered by the terms published with them.
+
+-------------------------------------------------------------------------------
+Chunking templates
+-------------------------------------------------------------------------------
+
+The General, Laws and Paper chunking templates (backend/app/services/chunking/)
+reimplement the behaviour of RAGFlow's templates of the same names, for
+compatibility. They are written for RagNex and licensed under the MIT License.
+
+-------------------------------------------------------------------------------
+Third-party dependencies
+-------------------------------------------------------------------------------
+
+Libraries installed as dependencies (listed in backend/pyproject.toml and
+frontend/package.json) and the container images RagNex runs on are distributed
+under their own licenses.

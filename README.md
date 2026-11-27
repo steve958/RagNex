@@ -135,4 +135,7 @@ cd frontend && npm test -- --run --coverage
   made before deletion purging existed. Dry run by default; `--execute` applies it.
 
 ## License
-TBD (will be decided before the first public release).
+RagNex is licensed under the [MIT License](LICENSE).
+
+The `deepdoc/` directory is derived from RAGFlow's DeepDoc and remains under the
+[Apache License 2.0](deepdoc/LICENSE). [NOTICE](NOTICE) has the details.

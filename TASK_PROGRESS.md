@@ -1,11 +1,19 @@
 # RAGFlow Replacement — Task Progress Tracker
 Source of truth: `IMPLEMENTATION_TASKS.md`
-Last updated: 2025-12-18T11:54:36Z
+Last updated: 2026-11-27
 
 ## How to use
 - Mark items complete by changing `[ ]` to `[x]`.
 - Add dates/notes under each task when helpful.
 - Keep this file focused on status (implementation progress), not design.
+
+## Decisions (2026-11-27)
+- License: MIT for RagNex. `deepdoc/` stays Apache-2.0 (derived from RAGFlow); see `LICENSE`, `NOTICE`, `deepdoc/LICENSE`. Done.
+- Unused storage helpers (`generate_presigned_url`, `get_usage_bytes`, `cleanup_orphaned_objects`): remove them, and add a "Download original" action served through the API (presigned URLs would point at MinIO's internal address).
+- CI: GitHub Actions runs backend and frontend tests on every PR; merges to `master` build and publish both images to `ghcr.io`; add a `uv` lockfile.
+- Workspace model API keys: encrypt at rest with a new `RAGNEX_ENCRYPTION_KEY` setting, with a migration for existing keys.
+- Back on the list: re-ranking (P3-5), conversation summarization (P4-3), two-column PDF layout (P2-5).
+- Not planned: Kubernetes manifests and Helm chart (P7-2; Docker Compose is the supported deployment), chunking parity tests against RAGFlow (P6-2; no RAGFlow instance to compare with).
 
 ---
 
@@ -291,7 +299,7 @@ Notes:
 - [x] Port Paper PDF parser behavior (heuristic)
 - [x] Port title/author extraction logic (heuristic)
 - [x] Port abstract detection (heuristic)
-- [ ] Port two-column layout handling (deferred; requires layout/position-aware extraction)
+- [ ] Port two-column layout handling (back on the list, 2026-11-27; requires layout/position-aware extraction)
 - [ ] Port `title_frequency` for section pivot detection (deferred)
 - [ ] Port figure/table extraction with vision enhancement (deferred)
 - [x] PDF-only format enforcement
@@ -373,7 +381,7 @@ Notes:
 - 2025-12-18: Added endpoint `backend/app/api/v1/knowledgebases.py` and registered router.
 - 2025-12-18: Added tests `backend/tests/test_search.py`; verified backend test suite passes: `34 passed, 2 skipped`.
 
-### P3-5: Re-ranking Integration (skipped for v1)
+### P3-5: Re-ranking Integration (back on the list, 2026-11-27)
 - [ ] Create re-ranker abstraction (skipped)
 - [ ] Implement cross-encoder re-ranker (optional, skipped)
 - [ ] Implement Cohere re-ranker (optional, skipped)
@@ -446,7 +454,7 @@ Notes:
 - [x] Create message history endpoints
 - [x] `GET /api/v1/chat/sessions/{id}/messages`
 - [x] Implement context window management
-- [ ] Add message summarization for long conversations
+- [ ] Add message summarization for long conversations (back on the list, 2026-11-27)
 - [x] Implement message pagination
 - [x] Add message metadata (timestamps, token counts)
 
@@ -586,7 +594,7 @@ Notes:
 ### P6-2: Integration Tests
 - [ ] Create integration test fixtures
 - [ ] Write API integration tests
-- [ ] Write chunking parity tests
+- [ ] Write chunking parity tests (not planned: no RAGFlow instance to compare with)
 - [x] Create end-to-end test scenarios (upload → answer; more scenarios still to add)
 
 Notes:
@@ -653,7 +661,7 @@ Notes:
 - 2026-11-26: `backend/pyproject.toml` was missing runtime dependencies (PyJWT, passlib, argon2-cffi, email-validator, slowapi, greenlet via `sqlalchemy[asyncio]`) and couldn't be installed (`pip install -e` failed on the flat layout). Both fixed.
 - 2026-11-26: Verified on a local stack through nginx: upload → worker parse → indexing reaching host Ollama. Search and chat need `bge-m3` pulled, so they weren't exercised in this stack.
 
-### P7-2: Kubernetes Manifests
+### P7-2: Kubernetes Manifests (not planned; Docker Compose is the supported deployment)
 - [ ] Create Kubernetes manifests
 - [ ] Create Helm chart (optional)
 - [ ] Document resource requirements

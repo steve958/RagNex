@@ -45,6 +45,7 @@ COPY backend/app ./backend/app
 COPY backend/alembic ./backend/alembic
 COPY backend/alembic.ini ./backend/alembic.ini
 COPY deepdoc ./deepdoc
+COPY LICENSE NOTICE ./
 COPY docker/backend-entrypoint.sh /usr/local/bin/ragnex
 
 # Strip CRLF in case the script was checked out on Windows, then fail the build early if
