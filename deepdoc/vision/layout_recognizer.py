@@ -13,6 +13,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+#  This file is part of RagNex's copy of DeepDoc and may differ from the upstream
+#  RAGFlow version (https://github.com/infiniflow/ragflow); see NOTICE.
 
 import logging
 import math

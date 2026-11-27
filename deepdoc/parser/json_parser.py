@@ -14,6 +14,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+#  This file is part of RagNex's copy of DeepDoc and may differ from the upstream
+#  RAGFlow version (https://github.com/infiniflow/ragflow); see NOTICE.
 
 # The following documents are mainly referenced, and only adaptation modifications have been made
 # from https://github.com/langchain-ai/langchain/blob/master/libs/text-splitters/langchain_text_splitters/json.py

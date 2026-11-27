@@ -14,6 +14,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+#  This file is part of RagNex's copy of DeepDoc and may differ from the upstream
+#  RAGFlow version (https://github.com/infiniflow/ragflow); see NOTICE.
 
 from deepdoc.nlp import rag_tokenizer
 from deepdoc.parser.utils import get_text
