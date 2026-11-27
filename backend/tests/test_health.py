@@ -102,3 +102,19 @@ async def test_health_ready_reports_failures_without_leaking_details(monkeypatch
             assert body["components"]["postgres"] == {**body["components"]["postgres"], "ok": False, "detail": "ConnectionRefusedError"}
             assert body["components"]["redis"]["ok"] is True
             assert "s3cret" not in r.text and "db-internal" not in r.text
+
+
+@pytest.mark.asyncio
+async def test_api_reference_is_served_under_api():
+    """nginx and the dev proxy forward only /api, so the reference must live there."""
+    import httpx
+
+    from backend.app.main import create_app
+
+    transport = httpx.ASGITransport(app=create_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        spec = (await client.get("/api/openapi.json")).json()
+        assert "/api/v1/knowledgebases/{kb_id}/search" in spec["paths"]
+        docs = await client.get("/api/docs")
+        assert docs.status_code == 200 and "/api/openapi.json" in docs.text
+        assert (await client.get("/docs")).status_code == 404

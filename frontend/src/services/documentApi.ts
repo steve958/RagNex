@@ -44,18 +44,17 @@ export const uploadDocumentToKnowledgeBase = async (
 ): Promise<DocumentUploadResponse> => {
   const formData = new FormData();
   formData.append('file', file);
-  if (options?.from_page != null) {
-    formData.append('from_page', String(options.from_page));
-  }
-  if (options?.to_page != null) {
-    formData.append('to_page', String(options.to_page));
-  }
+  // The page range is a query parameter; as form fields the server would ignore it.
+  const params: Record<string, number> = {};
+  if (options?.from_page != null) params.from_page = options.from_page;
+  if (options?.to_page != null) params.to_page = options.to_page;
 
   const res = await apiClient.post<DocumentUploadResponse>(
     `/api/v1/knowledgebases/${kbId}/documents`,
     formData,
     {
       headers: { 'Content-Type': 'multipart/form-data' },
+      params,
     },
   );
   return res.data;

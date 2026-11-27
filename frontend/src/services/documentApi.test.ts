@@ -72,3 +72,19 @@ describe('downloadDocument', () => {
     expect(clicked).toEqual([]);
   });
 });
+
+describe('uploadDocumentToKnowledgeBase', () => {
+  it('sends the page range as query parameters, where the server reads it', async () => {
+    const { uploadDocumentToKnowledgeBase } = await import('./documentApi');
+    (apiClient as unknown as { post: ReturnType<typeof vi.fn> }).post = vi.fn().mockResolvedValue({ data: {} });
+    const file = new File(['x'], 'a.pdf');
+
+    await uploadDocumentToKnowledgeBase('kb1', file, { from_page: 2, to_page: 5 });
+
+    const [url, body, config] = vi.mocked(apiClient.post).mock.calls[0];
+    expect(url).toBe('/api/v1/knowledgebases/kb1/documents');
+    expect((body as FormData).get('file')).toBe(file);
+    expect((body as FormData).has('from_page')).toBe(false);
+    expect(config).toMatchObject({ params: { from_page: 2, to_page: 5 } });
+  });
+});

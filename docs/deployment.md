@@ -41,7 +41,8 @@ Use hex (letters and digits only) for `POSTGRES_PASSWORD`: compose puts it insid
 database URL, where characters such as `@`, `:`, `/` or `#` break the connection.
 
 `OPENSEARCH_INITIAL_ADMIN_PASSWORD` is only demanded by the OpenSearch image. It needs upper
-and lower case, a digit and a symbol (for example `Ragnex-` followed by `openssl rand -hex 8`).
+and lower case, a digit and a symbol, and must not resemble the user name `admin` (for
+example `Ragnex-` followed by `openssl rand -hex 8`); otherwise OpenSearch refuses to start.
 RagNex never uses it.
 
 ### Rotating secrets
@@ -190,9 +191,51 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 Database migrations run automatically before the new API and worker start. Back up
 Postgres first: migrations can't always be undone.
 
+**MinIO image:** the official `minio/minio` image is no longer published, so RagNex uses
+Chainguard's maintained build of the same server (`cgr.dev/chainguard/minio`), pinned by
+digest in the compose files. Existing MinIO data volumes work with it unchanged. To update
+it, run `docker pull cgr.dev/chainguard/minio:latest`, put the new digest
+(`docker image inspect --format '{{index .RepoDigests 0}}' cgr.dev/chainguard/minio:latest`)
+into `docker-compose.prod.yml`, and apply.
+
 **Upgrading from a version without `RAGNEX_ENCRYPTION_KEY`:** add it to `.env.prod` first
 (`openssl rand -base64 32`). Compose refuses to start without it, and the upgrade encrypts
 the workspace model API keys already stored.
+
+## Re-ranking
+
+Optional, and off by default. A re-ranker re-scores the best search candidates for each
+question, which usually improves answers, especially for questions worded differently from
+the documents. It costs one extra model call per question.
+
+The compose file includes one, started only on request: Hugging Face Text Embeddings
+Inference on CPU, with `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`, a small multilingual
+model (it matches questions and passages across languages too).
+
+```bash
+# .env.prod
+RERANK_PROVIDER=tei
+RERANK_BASE_URL=http://reranker
+
+docker compose -f docker-compose.prod.yml --env-file .env.prod --profile rerank up -d
+```
+
+On first start it downloads the model (about 500 MB). Measured on 8 CPU cores: about 2.5 GB
+of memory, and about 3 seconds per question to re-score the default 15 candidates (8 seconds
+for 30), which is added before the answer starts. Keep `--profile rerank` on later `up` and
+`pull` commands, or the service is left out.
+
+Larger re-rankers are more accurate but need a GPU: `BAAI/bge-reranker-v2-m3` took over a
+minute per question on the same CPU. With a GPU, run TEI's GPU image (or vLLM) with that
+model and point `RERANK_BASE_URL` at it.
+
+To use another server instead (vLLM, Infinity, Jina, Cohere), set `RERANK_PROVIDER=cohere`,
+`RERANK_BASE_URL` to its API base (for example `http://gpu-box:8000/v1`), `RERANK_MODEL`,
+and `RERANK_API_KEY` if it needs one. See [configuration.md](configuration.md#re-ranking).
+
+To check it's used: a search through the API returns `"reranked": true`. If the
+re-ranker can't be reached, search falls back to its normal order and the API log says
+`Re-ranking failed`.
 
 ## Prebuilt images
 

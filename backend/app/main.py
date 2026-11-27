@@ -54,7 +54,16 @@ async def _secret_unavailable(request: Request, exc: SecretUnavailable) -> JSONR
 def create_app() -> FastAPI:
     configure_logging()
 
-    app = FastAPI(title="RagNex API")
+    app = FastAPI(
+        title="RagNex API",
+        version="0.1",
+        description="Knowledge bases, documents, search and chat. Guide: docs/api.md.",
+        # Under /api/ so the reference is reachable through the bundled nginx and the
+        # Vite dev proxy, which forward only /api.
+        docs_url="/api/docs",
+        redoc_url=None,
+        openapi_url="/api/openapi.json",
+    )
 
     # Correlation + request logs first so downstream middleware/handlers inherit request_id.
     app.add_middleware(RequestIdMiddleware)

@@ -190,6 +190,7 @@ Notes:
 - 2025-12-18: Added unit tests in `backend/tests/test_storage.py` and an optional MinIO integration smoke test (run with `RUN_MINIO_TESTS=1`).
 - 2025-12-18: Verified test suite passes (`15 passed, 1 skipped`).
 - 2026-11-27: Removed `generate_presigned_url`, `get_usage_bytes` and `cleanup_orphaned_objects`, which had no callers; presigned URLs would point at MinIO's internal address, which browsers can't reach. Added a download endpoint that streams the file through the API after the usual workspace and API-key checks, always as an attachment (`application/octet-stream`, `nosniff`, sandboxed), so an uploaded HTML file can't run scripts in the app. The web app offers "Download" on each document and "Download original" in the chunk viewer, which citations open.
+- 2026-11-27: The official `minio/minio` image was removed from Docker Hub (CI failed at "Start MinIO"; fresh installs couldn't start). Switched dev, prod and CI to Chainguard's maintained build, `cgr.dev/chainguard/minio`, pinned by digest (MinIO RELEASE.2026-11-23), running as root like the old image because existing volumes are root-owned. Verified on a copy of the dev volume: all 28 buckets and 122 objects read back byte-identical, writes work; then the full suite passed against it. Health checks use bash (the image has no curl or grep).
 
 ### P1-5: Redis Caching & Queue Setup
 - [x] Create Redis client wrapper with connection pooling
@@ -383,12 +384,16 @@ Notes:
 - 2025-12-18: Added endpoint `backend/app/api/v1/knowledgebases.py` and registered router.
 - 2025-12-18: Added tests `backend/tests/test_search.py`; verified backend test suite passes: `34 passed, 2 skipped`.
 
-### P3-5: Re-ranking Integration (back on the list, 2026-11-27)
-- [ ] Create re-ranker abstraction (skipped)
-- [ ] Implement cross-encoder re-ranker (optional, skipped)
-- [ ] Implement Cohere re-ranker (optional, skipped)
-- [ ] Add re-ranking configuration (skipped)
-- [ ] Integrate into search pipeline (skipped)
+### P3-5: Re-ranking Integration
+- [x] Create re-ranker abstraction (`backend/app/services/rerank.py`)
+- [x] Implement cross-encoder re-ranker (served over HTTP by Hugging Face TEI: `RERANK_PROVIDER=tei`; optional compose service `reranker`, profile `rerank`, with `BAAI/bge-reranker-v2-m3` on CPU)
+- [x] Implement Cohere re-ranker (`RERANK_PROVIDER=cohere`: the common `/rerank` API of vLLM, Infinity, Jina and Cohere)
+- [x] Add re-ranking configuration (`RERANK_*`; off by default)
+- [x] Integrate into search pipeline (chat and `POST /knowledgebases/{id}/search`; `rerank: false` per request; responses say `reranked`)
+
+Notes:
+- 2026-11-27: Decisions: an optional HTTP service rather than a model inside the API (keeps the images unchanged); server-wide on/off with a per-request opt-out, no per-workspace setting yet. The best `RERANK_CANDIDATES` (15) fused candidates are re-scored; if the re-ranker fails, search falls back to the fused order and logs a warning.
+- Measured with TEI cpu-1.9.4 on 8 cores: `BAAI/bge-reranker-v2-m3` (568M parameters, no ONNX export) took 86 s for 10 passages of ~500 tokens and ran out of memory at TEI's default `--max-batch-tokens`; GPU only. `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` (multilingual, ONNX) takes 2.2 s for 10, ~3 s for 15, 5-6 s for 20, 7-8 s for 30, using 2.5 GB, and ranks correctly across English and Serbian. It is the bundled default with 15 candidates and `--max-batch-tokens 4096`.
 
 Notes:
 - 2026-01-15: Explicitly decided to skip P3-5 re-ranking for the initial release; hybrid BM25 + vector search from P3-4 is considered sufficient.
@@ -681,11 +686,14 @@ Notes:
 - 2026-11-26: Sign-up can be closed (`REGISTRATION_ENABLED`) or limited to email domains (`REGISTRATION_EMAIL_DOMAINS`); operators create accounts with `python -m backend.app.services.accounts create-user` (own workspace, or `--workspace` to join one). The web app hides sign-up when closed (`GET /api/v1/auth/registration`). Rate-limit counts moved to Redis, so they hold across API processes and restarts, falling back to in-memory if Redis is unreachable.
 
 ### P7-4: User Documentation
-- [ ] Create getting started guide
-- [ ] Document UI features
-- [ ] Create API documentation
-- [ ] Create FAQ section
-- [ ] Create troubleshooting guide
+- [x] Create getting started guide (`docs/user-guide.md`)
+- [x] Document UI features (`docs/user-guide.md`)
+- [x] Create API documentation (`docs/api.md`; interactive reference now served at `/api/docs`, reachable through nginx)
+- [x] Create FAQ section (`docs/troubleshooting.md`)
+- [x] Create troubleshooting guide (`docs/troubleshooting.md`)
+
+Notes:
+- 2026-11-27: `backend/tests/test_api_guide.py` runs the API guide's examples against the real API, so the guide fails a test when it drifts from the code. Fixed on the way: the web app's upload helper sent the PDF page range as form fields, which the API ignores (it reads query parameters); unused so far. Gap noted in the guide: the web app always works in the user's first workspace and has no workspace switcher or members screen.
 
 ### P7-5: Developer Documentation
 - [ ] Document architecture overview
