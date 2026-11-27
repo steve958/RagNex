@@ -46,7 +46,8 @@ uploaded afterwards; to re-cut existing ones, reprocess them (see below).
 ### Supported files
 
 PDF, Word (`.docx`), PowerPoint (`.pptx`), Excel (`.xlsx`), CSV, HTML, Markdown, plain text
-and JSON (`.json`, `.jsonl`). The older Office formats (`.doc`, `.ppt`, `.xls`) aren't
+and JSON (`.json`, `.jsonl`). Two-column PDFs, such as papers and official gazettes, are read
+column by column. The older Office formats (`.doc`, `.ppt`, `.xls`) aren't
 supported: save them in the newer format first. PDFs need to contain text; scanned PDFs
 (images of pages) only work if your server has OCR enabled.
 
