@@ -85,6 +85,8 @@ On the **Chat** page:
   keeps the knowledge bases it was created with.
 - **Ask:** type your question and press **Send** or Ctrl+Enter. Follow-up questions can
   refer to earlier ones ("and what about 2023?"): recent messages are taken into account.
+  In long chats, the earlier part is kept as a summary, so the model still knows what the
+  conversation was about, though not every detail of it.
 - **Citations:** an answer that used your documents shows how many passages it cited.
   Click to open the passage; from there, **Download original** gets the source document.
 - **History:** chats are saved. Pick one from the list to continue it, or delete it.

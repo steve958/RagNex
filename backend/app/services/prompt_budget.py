@@ -3,7 +3,8 @@
 Priority when space runs out:
   1. system prompt + instructions + the current question (always sent)
   2. retrieved chunks, best-ranked first (lower-ranked ones are dropped)
-  3. conversation history, newest exchanges first (older ones are dropped)
+  3. the summary of the earlier conversation, if the session has one
+  4. conversation history after the summary, newest exchanges first (older ones are dropped)
 """
 
 from __future__ import annotations
@@ -38,6 +39,16 @@ def estimate_tokens(text: str) -> int:
     return max(num_tokens_from_string(text), (len(text) + 3) // 4)
 
 
+def prompt_space(context_window: int, reserve_for_answer: int) -> int:
+    """Tokens available for the prompt, leaving room for the answer."""
+    return max(_MIN_PROMPT_TOKENS, int(context_window * _SAFETY_RATIO) - reserve_for_answer)
+
+
+def message_tokens(content: str) -> int:
+    """Estimated tokens one chat message takes, formatting included."""
+    return _message_tokens(content)
+
+
 def _message_tokens(content: str) -> int:
     return estimate_tokens(content) + _PER_MESSAGE_OVERHEAD
 
@@ -49,6 +60,13 @@ def _hit_block(index: int, hit: SearchHit) -> str:
 
 def _context_message(blocks: list[str]) -> str:
     return f"{RAG_INSTRUCTIONS}\n\nContext:\n" + "\n".join(blocks)
+
+
+def summary_message(summary: str) -> str:
+    return (
+        "Summary of the earlier part of this conversation (those messages are not shown "
+        f"here):\n{summary}"
+    )
 
 
 def answered_exchanges(history: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -78,6 +96,7 @@ class PromptPlan:
     dropped_hits: int
     dropped_exchanges: int
     estimated_tokens: int
+    used_summary: bool = False
 
 
 def build_prompt(
@@ -88,12 +107,15 @@ def build_prompt(
     system_prompt: str | None,
     context_window: int,
     reserve_for_answer: int,
+    summary: str | None = None,
 ) -> PromptPlan:
-    """Assemble system prompt + retrieved context + history + question within budget.
+    """Assemble system prompt + retrieved context + summary + history + question within
+    budget.
 
-    `history` is (role, content) in chronological order, excluding the current question.
+    `history` is (role, content) in chronological order, excluding the current question
+    and anything `summary` already covers.
     """
-    budget = max(_MIN_PROMPT_TOKENS, int(context_window * _SAFETY_RATIO) - reserve_for_answer)
+    budget = prompt_space(context_window, reserve_for_answer)
 
     # 1. Always sent.
     used = _message_tokens(question) + _message_tokens(_context_message([]))
@@ -112,7 +134,15 @@ def build_prompt(
             used_hits.append(hit)
             used += cost
 
-    # 3. History, newest exchange first; stop at the first one that doesn't fit so the
+    # 3. The summary of what came before `history`.
+    used_summary = False
+    if summary and summary.strip():
+        cost = _message_tokens(summary_message(summary))
+        if used + cost <= budget:
+            used += cost
+            used_summary = True
+
+    # 4. History, newest exchange first; stop at the first one that doesn't fit so the
     #    kept history stays contiguous.
     exchanges = answered_exchanges(history)
     kept: list[tuple[str, str]] = []
@@ -128,6 +158,8 @@ def build_prompt(
     if system_prompt:
         messages.append(LLMMessage(role="system", content=system_prompt))
     messages.append(LLMMessage(role="system", content=_context_message(blocks)))
+    if used_summary:
+        messages.append(LLMMessage(role="system", content=summary_message(summary)))
     for q, a in kept:
         messages.append(LLMMessage(role="user", content=q))
         messages.append(LLMMessage(role="assistant", content=a))
@@ -139,4 +171,5 @@ def build_prompt(
         dropped_hits=len(hits) - len(used_hits),
         dropped_exchanges=len(exchanges) - len(kept),
         estimated_tokens=used,
+        used_summary=used_summary,
     )
