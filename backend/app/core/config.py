@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     # keeping llm_max_tokens free for the answer. Set this to the model's real context size.
     llm_context_window: int = 8192
 
+    # Long chats: fold older messages into a running summary instead of dropping them
+    # (services/conversation_summary.py). Costs an extra model call every few turns once
+    # a conversation outgrows the prompt.
+    chat_summary_enabled: bool = True
+
     # Re-ranking (services/rerank.py): an optional cross-encoder service that re-scores the
     # top search candidates. "none" = off; "cohere" = the common /rerank API (vLLM,
     # Infinity, Jina, Cohere); "tei" = Hugging Face Text Embeddings Inference.

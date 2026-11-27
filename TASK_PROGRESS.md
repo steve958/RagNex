@@ -464,7 +464,9 @@ Notes:
 - [x] Create message history endpoints
 - [x] `GET /api/v1/chat/sessions/{id}/messages`
 - [x] Implement context window management
-- [ ] Add message summarization for long conversations (back on the list, 2026-11-27)
+- [x] Add message summarization for long conversations (2026-11-27; `services/conversation_summary.py`, migration 0007)
+  - Once the history after the session's summary needs more than 35% of the prompt space, the oldest exchanges are folded into a running summary (`chat_sessions.summary`, covering messages up to `summary_through`) by the tenant's chat model, down to half that, so it happens every few turns. Runs in the background after the answer is saved. Prompts send the summary (priority after retrieved passages) in place of the folded messages. A fold is saved only if the summary hasn't changed since it started; failures keep the old summary. `CHAT_SUMMARY_ENABLED` turns it off.
+  - Tried with a real small model (gemma2:2b): the first prompt wording made it echo the new messages and drop the earlier summary. Reworded (the new summary replaces the current one; current summary and new messages in separate blocks) it kept earlier facts and added new ones in 3 of 3 runs; output that looks like a transcript is now rejected.
 - [x] Implement message pagination
 - [x] Add message metadata (timestamps, token counts)
 

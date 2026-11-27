@@ -21,6 +21,7 @@ from backend.app.models.chat import ChatMessage, ChatSession
 from backend.app.models.knowledge_base import KnowledgeBase
 from backend.app.services.llm import LLMConfig, LLMMessage, LLMService, LLMResult, create_llm_service
 from backend.app.services.model_settings import load_tenant_llm_config
+from backend.app.services.conversation_summary import refresh_summary
 from backend.app.services.prompt_budget import build_prompt
 from backend.app.services.search import SearchHit, SearchService
 
@@ -46,6 +47,9 @@ class ChatSessionResponse(BaseModel):
     system_prompt: str | None
     kb_ids: list[uuid.UUID]
     created_at: datetime
+    # Running summary of the earlier conversation, once the chat has outgrown the model's
+    # prompt; prompts send it in place of those messages. Read-only.
+    summary: str | None = None
 
 
 class Citation(BaseModel):
@@ -111,6 +115,7 @@ def _to_response(session: ChatSession) -> ChatSessionResponse:
         system_prompt=session.system_prompt,
         kb_ids=kb_ids,
         created_at=session.created_at,
+        summary=session.summary,
     )
 
 
@@ -374,8 +379,10 @@ async def _prepare_turn(
         raise HTTPException(status_code=400, detail=KB_DELETED_DETAIL)
 
     # Load prior turns before adding the new user message; it is passed separately as
-    # the current question.
+    # the current question. Messages the session's summary covers are sent as the summary.
     history = await _load_history_messages(db, session)
+    if session.summary_through is not None:
+        history = [m for m in history if m.created_at > session.summary_through]
 
     user_msg = ChatMessage(
         tenant_id=tenant_id,
@@ -405,6 +412,7 @@ async def _prepare_turn(
         system_prompt=session.system_prompt,
         context_window=cfg.context_window,
         reserve_for_answer=cfg.max_tokens,
+        summary=session.summary,
     )
     if plan.dropped_hits or plan.dropped_exchanges:
         logger.info(
@@ -452,6 +460,7 @@ async def send_message(
     db.add(assistant_msg)
     await db.commit()
     await db.refresh(assistant_msg)
+    _schedule_summary_refresh(tenant_id, turn.session.id, turn.llm_config)
 
     return _to_message_response(assistant_msg)
 
@@ -462,9 +471,24 @@ def _sse(event: str, data: object) -> str:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
-# Answers being generated in the background. Holding a reference keeps the event loop
-# from garbage-collecting a task whose client has disconnected.
+# Answers being generated, and summaries being updated, in the background. Holding a
+# reference keeps the event loop from garbage-collecting a running task.
 _generation_tasks: set[asyncio.Task] = set()
+
+
+async def _refresh_summary_quietly(tenant_id: uuid.UUID, session_id: uuid.UUID, cfg: LLMConfig) -> None:
+    try:
+        await refresh_summary(tenant_id, session_id, cfg, _make_llm_service)
+    except Exception:  # noqa: BLE001 - a failed summary leaves the old one; chat goes on
+        logger.exception("Updating the summary of chat session %s failed", session_id)
+
+
+def _schedule_summary_refresh(tenant_id: uuid.UUID, session_id: uuid.UUID, cfg: LLMConfig) -> None:
+    """After an answer is saved: fold old history into the session summary if it's grown
+    too long (services/conversation_summary.py). Runs in the background."""
+    task = asyncio.create_task(_refresh_summary_quietly(tenant_id, session_id, cfg))
+    _generation_tasks.add(task)
+    task.add_done_callback(_generation_tasks.discard)
 
 
 async def _generate_and_save(
@@ -508,6 +532,7 @@ async def _generate_and_save(
             await write_db.commit()
             await write_db.refresh(assistant_msg)
         events.put_nowait(("done", _to_message_response(assistant_msg).model_dump(mode="json")))
+        _schedule_summary_refresh(tenant_id, session_id, turn.llm_config)
     except Exception:  # noqa: BLE001 - e.g. DB failure while saving
         logger.exception("Saving the streamed answer failed for chat session %s", session_id)
         events.put_nowait(("error", {"detail": "Failed to save the answer"}))

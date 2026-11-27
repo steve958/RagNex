@@ -40,6 +40,7 @@ within the limits described under [Workspace model overrides](#workspace-model-o
 | `LLM_CONTEXT_WINDOW` | `8192` | yes | The model's total context size in tokens (prompt plus answer). Chat prompts are trimmed to fit, so **set this to the model's real context size**. Too high and long chats fail; too low and answers use less of your documents than they could. |
 | `LLM_MAX_TOKENS` | `2048` | yes | Most tokens an answer may use. This much of the context window is kept free for the answer. |
 | `LLM_TEMPERATURE` | `0.2` | yes | 0 to 2. Low values keep answers close to the documents. |
+| `CHAT_SUMMARY_ENABLED` | `true` | yes | Long chats keep a running summary of earlier messages that no longer fit the model's context, instead of forgetting them. Costs an extra call to the chat model every few turns once a chat is that long; it runs after the answer, so answers aren't slower. |
 | `EMBEDDING_PROVIDER` | `ollama` | yes | `ollama`, `openai` or `vllm`. |
 | `EMBEDDING_MODEL` | `bge-m3` | yes | Model that turns text into vectors for search. |
 | `EMBEDDING_DIMENSION` | `1024` | yes | Vector size the model produces (`bge-m3`: 1024, OpenAI `text-embedding-3-small`: 1536). **Must match the model.** It is fixed into the search index when a workspace's index is created, so changing it (or the model) later means deleting the workspaces' indices and reprocessing every document. |

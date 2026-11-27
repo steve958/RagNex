@@ -151,7 +151,9 @@ curl -s "$API/chat/sessions" "${AUTH[@]}" -H 'Content-Type: application/json' \
 # -> {"id": "5e22...", "name": "HR questions", "system_prompt": "Answer briefly.", "kb_ids": ["8b1d..."], ...}
 ```
 
-`system_prompt` is optional: extra instructions for every answer in the session.
+`system_prompt` is optional: extra instructions for every answer in the session. Once a
+session outgrows the model's context, its earlier messages are kept as a running summary,
+returned read-only as `summary` by `GET /chat/sessions/{id}` (`null` until then).
 
 ### Asking, with the whole answer at once
 

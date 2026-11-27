@@ -43,6 +43,10 @@ class ChatSession(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
 
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Running summary of the earlier conversation, covering messages created up to and
+    # including summary_through (services/conversation_summary.py).
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_through: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     tenant: Mapped["Tenant"] = relationship(back_populates="chat_sessions")
     user: Mapped["User"] = relationship(back_populates="chat_sessions")
