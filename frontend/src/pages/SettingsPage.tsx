@@ -11,7 +11,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'llm', label: 'LLM' },
   { id: 'embeddings', label: 'Embeddings' },
   { id: 'api-keys', label: 'API keys' },
-  { id: 'team', label: 'Team & tenant' },
+  { id: 'team', label: 'Workspace' },
 ];
 
 export const SettingsPage: React.FC = () => {

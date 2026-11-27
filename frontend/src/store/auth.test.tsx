@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, waitFor } from '@testing-library/react';
 
-import { apiClient, refreshAccessToken } from '../services/apiClient';
+import { apiClient, getAuthHeaders, refreshAccessToken } from '../services/apiClient';
 import { AuthProvider, AuthState, NoTenantError, useAuth } from './auth';
 
 const STORAGE_KEY = 'ragnex_auth';
@@ -158,4 +158,23 @@ describe('AuthProvider', () => {
     expect(client.getQueryData(['knowledge-bases'])).toBeUndefined();
     expect(auth.current?.tenantId).toBe('t2');
   });
+
+  it('switches workspace: stores it, sends it with requests, and drops the old cached data', async () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ email: 'a@b.c', accessToken: 'tok', refreshToken: 'ref', tenantId: 't1' }),
+    );
+    const client = new QueryClient();
+    client.setQueryData(['knowledgebases'], [{ id: 'kb-of-t1' }]);
+    const auth = renderAuth(client);
+
+    act(() => auth.current!.switchTenant('t2'));
+
+    expect(auth.current?.tenantId).toBe('t2');
+    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY)!).tenantId).toBe('t2');
+    expect(client.getQueryData(['knowledgebases'])).toBeUndefined();
+    // Every request (axios and the streaming fetch) now names the new workspace.
+    expect(getAuthHeaders()['X-Tenant-ID']).toBe('t2');
+  });
 });
+

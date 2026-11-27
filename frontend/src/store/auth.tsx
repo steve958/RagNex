@@ -14,6 +14,8 @@ export interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  /** Work in another workspace. Cached data of the current one is dropped. */
+  switchTenant: (tenantId: string) => void;
 }
 
 interface StoredAuth {
@@ -162,6 +164,13 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     login: (email, password) => authenticate('/api/v1/auth/login', email, password),
     register: (email, password) => authenticate('/api/v1/auth/register', email, password),
     logout: () => switchIdentity(null),
+    switchTenant: (tenantId) => {
+      const current = authRef.current;
+      if (!current || current.tenantId === tenantId) return;
+      // Everything cached (knowledge bases, documents, chats) belongs to the old workspace.
+      queryClient.clear();
+      apply({ ...current, tenantId });
+    },
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

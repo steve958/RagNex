@@ -698,7 +698,7 @@ Notes:
 - [x] Create troubleshooting guide (`docs/troubleshooting.md`)
 
 Notes:
-- 2026-11-27: `backend/tests/test_api_guide.py` runs the API guide's examples against the real API, so the guide fails a test when it drifts from the code. Fixed on the way: the web app's upload helper sent the PDF page range as form fields, which the API ignores (it reads query parameters); unused so far. Gap noted in the guide: the web app always works in the user's first workspace and has no workspace switcher or members screen.
+- 2026-11-27: `backend/tests/test_api_guide.py` runs the API guide's examples against the real API, so the guide fails a test when it drifts from the code. Fixed on the way: the web app's upload helper sent the PDF page range as form fields, which the API ignores (it reads query parameters); unused so far. Gap noted in the guide then: the web app always worked in the user's first workspace, with no switcher or members screen. Closed 2026-11-27: workspace menu in the header and a Workspace settings tab (members listed owners first; owners add people by email, change roles, remove; switch and create workspaces). API: `GET /tenants` includes your role, `GET /tenants/{id}/members`, and `POST /tenants/{id}/members` accepts `email`.
 
 ### P7-5: Developer Documentation
 - [ ] Document architecture overview

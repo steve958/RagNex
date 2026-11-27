@@ -145,3 +145,59 @@ async def test_owner_can_delete_workspace(team):
     assert t not in await _tenants_of(owner)
     assert t not in await _tenants_of(member)
     assert (await member.http.get("/api/v1/knowledgebases", headers={**member.auth, "X-Tenant-ID": t})).status_code == 403
+
+
+async def _email(user: User) -> str:
+    return (await user.http.get("/api/v1/auth/me", headers=user.auth)).json()["email"]
+
+
+@pytest.mark.asyncio
+async def test_members_are_listed_owners_first_with_emails(team):
+    owner, member, stranger, t = team
+    for who in (owner, member):  # any member may see who's in the workspace
+        r = await who.call("GET", f"/{t}/members")
+        assert r.status_code == 200
+        assert [(m["user_id"], m["role"]) for m in r.json()] == [(owner.id, "owner"), (member.id, "member")]
+        assert r.json()[1]["email"] == await _email(member)
+    assert (await stranger.call("GET", f"/{t}/members")).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_workspace_list_includes_my_role(team):
+    owner, member, stranger, t = team
+    mine = {w["id"]: w["role"] for w in (await member.call("GET", "")).json()}
+    assert mine[t] == "member" and mine[member.own_tenant] == "owner"
+
+
+@pytest.mark.asyncio
+async def test_owner_adds_a_member_by_email(team):
+    owner, member, stranger, t = team
+    email = await _email(stranger)
+    r = await owner.call("POST", f"/{t}/members", {"email": email.upper(), "role": "member"})  # case doesn't matter
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": True, "user_id": stranger.id, "email": email, "role": "member"}
+    assert t in await _tenants_of(stranger)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("body", "status", "detail"),
+    [
+        ({"email": "nobody-here@example.com"}, 404, "need an account first"),
+        ({}, 422, "Give either user_id or email"),
+        ({"email": "x@example.com", "user_id": str(uuid.uuid4())}, 422, "Give either user_id or email"),
+        ({"email": "not-an-email"}, 422, "email"),
+    ],
+)
+async def test_adding_by_email_errors(team, body, status, detail):
+    owner, member, stranger, t = team
+    r = await owner.call("POST", f"/{t}/members", body)
+    assert r.status_code == status
+    assert detail in str(r.json()["detail"])
+
+
+@pytest.mark.asyncio
+async def test_members_cannot_add_people_by_email(team):
+    owner, member, stranger, t = team
+    r = await member.call("POST", f"/{t}/members", {"email": await _email(stranger)})
+    assert r.status_code == 403

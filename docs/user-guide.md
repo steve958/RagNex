@@ -126,8 +126,18 @@ API keys let other programs use your workspace without your password; see the
 The key is shown **once**, when it's created: copy it then. Revoke a key as soon as it's no
 longer needed or may have leaked.
 
-### Team & tenant
+### Workspace
 
-Lists the workspaces you belong to. The web app works in the first of them. Adding
-members and creating more workspaces is done through the [API](api.md#workspaces-and-members)
-or by the administrator for now.
+Shows who's in the current workspace. Owners can:
+
+- **add people** by their email address, as a member or an owner. They need an account
+  already (sign-up, or ask the administrator);
+- **change someone's role** or **remove** them. A workspace always keeps at least one
+  owner, so the last owner can't be demoted or removed.
+
+Members see the list but can't change it. Owners can also change model settings and API
+keys; members can use the workspace's knowledge bases and chat.
+
+Below that are all the workspaces you belong to. Switch between them here or with the
+workspace menu at the top of the page (it appears once you belong to more than one), and
+create new ones. Each workspace has its own knowledge bases, documents and chats.
