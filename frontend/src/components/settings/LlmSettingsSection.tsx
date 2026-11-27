@@ -145,6 +145,7 @@ export const LlmSettingsSection: React.FC = () => {
           <ApiKeyField
             id="llm-api-key"
             hasKey={data.llm.has_api_key}
+            keyReadable={data.llm.api_key_readable ?? true}
             value={apiKey}
             remove={removeKey}
             onChange={setApiKey}

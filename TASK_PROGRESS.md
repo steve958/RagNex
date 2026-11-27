@@ -11,7 +11,7 @@ Last updated: 2026-11-27
 - License: MIT for RagNex. `deepdoc/` stays Apache-2.0 (derived from RAGFlow); see `LICENSE`, `NOTICE`, `deepdoc/LICENSE`. Done.
 - Unused storage helpers (`generate_presigned_url`, `get_usage_bytes`, `cleanup_orphaned_objects`): remove them, and add a "Download original" action served through the API (presigned URLs would point at MinIO's internal address). Done.
 - CI: GitHub Actions runs backend and frontend tests on every PR; merges to `master` build and publish both images to `ghcr.io`; add a `uv` lockfile.
-- Workspace model API keys: encrypt at rest with a new `RAGNEX_ENCRYPTION_KEY` setting, with a migration for existing keys.
+- Workspace model API keys: encrypt at rest with a new `RAGNEX_ENCRYPTION_KEY` setting, with a migration for existing keys. Done: Fernet (`core/encryption.py`), stored as `enc:v1:…`; migration 0006 encrypts existing keys (downgrade decrypts); rotation via `RAGNEX_ENCRYPTION_PREVIOUS_KEYS` and `python -m backend.app.services.stored_secrets reencrypt`; an unreadable key gives a clear 503 in chat and a notice in Settings, and the owner can enter it again. Search and indexing now resolve embedding settings through the same function as the Settings checks instead of their own copies.
 - Back on the list: re-ranking (P3-5), conversation summarization (P4-3), two-column PDF layout (P2-5).
 - Not planned: Kubernetes manifests and Helm chart (P7-2; Docker Compose is the supported deployment), chunking parity tests against RAGFlow (P6-2; no RAGFlow instance to compare with).
 

@@ -115,12 +115,14 @@ export const BaseUrlSelect: React.FC<{
 export const ApiKeyField: React.FC<{
   id: string;
   hasKey: boolean;
+  /** False: a key is stored but the server can't decrypt it any more. */
+  keyReadable?: boolean;
   value: string;
   remove: boolean;
   onChange: (value: string) => void;
   onRemoveChange: (remove: boolean) => void;
   disabled?: boolean;
-}> = ({ id, hasKey, value, remove, onChange, onRemoveChange, disabled }) => (
+}> = ({ id, hasKey, keyReadable = true, value, remove, onChange, onRemoveChange, disabled }) => (
   <Field
     id={id}
     label="API key"
@@ -138,7 +140,13 @@ export const ApiKeyField: React.FC<{
       placeholder={hasKey ? '•••••••• (stored)' : 'No key stored'}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled || remove}
+      aria-invalid={hasKey && !keyReadable ? true : undefined}
     />
+    {hasKey && !keyReadable && (
+      <p role="alert" className="text-[11px] text-red-400">
+        The stored key can't be read any more (the server's encryption key changed). Enter it again.
+      </p>
+    )}
     {hasKey && (
       <label className="flex items-center gap-2 text-[11px] text-slate-300">
         <input

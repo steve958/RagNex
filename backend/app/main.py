@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DBAPIError
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.app.core.encryption import SecretUnavailable
 from backend.app.api.router import api_router
 from backend.app.api.v1.health import router as health_router
 from backend.app.core.config import settings
@@ -44,6 +45,12 @@ async def _invalid_input(request: Request, exc: DBAPIError) -> JSONResponse:
     )
 
 
+async def _secret_unavailable(request: Request, exc: SecretUnavailable) -> JSONResponse:
+    # A workspace's stored API key can't be decrypted (the server's encryption key changed).
+    logger.error("Stored secret unreadable on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
 def create_app() -> FastAPI:
     configure_logging()
 
@@ -71,6 +78,7 @@ def create_app() -> FastAPI:
     # NUL byte) is bad input, not a server error. Request models validate the common
     # cases with clearer messages; this catches anything that slips through.
     app.add_exception_handler(DBAPIError, _invalid_input)
+    app.add_exception_handler(SecretUnavailable, _secret_unavailable)
 
     # Root-level health endpoints (per IMPLEMENTATION_TASKS.md)
     app.include_router(health_router)

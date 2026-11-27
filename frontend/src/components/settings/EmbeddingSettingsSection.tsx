@@ -109,6 +109,7 @@ export const EmbeddingSettingsSection: React.FC = () => {
           <ApiKeyField
             id="emb-api-key"
             hasKey={data.embedding.has_api_key}
+            keyReadable={data.embedding.api_key_readable ?? true}
             value={apiKey}
             remove={removeKey}
             onChange={setApiKey}

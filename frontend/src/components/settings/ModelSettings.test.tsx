@@ -44,6 +44,24 @@ beforeEach(() => {
 });
 
 describe('LlmSettingsSection', () => {
+  it('asks for the key again when the stored one can no longer be decrypted', async () => {
+    const data = settings();
+    data.llm = { ...data.llm, has_api_key: true, api_key_readable: false };
+    renderWith(<LlmSettingsSection />, data);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("stored key can't be read any more");
+    expect(screen.getByLabelText('API key')).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('shows no warning for a readable key', async () => {
+    const data = settings();
+    data.llm = { ...data.llm, has_api_key: true, api_key_readable: true };
+    renderWith(<LlmSettingsSection />, data);
+
+    await screen.findByLabelText('API key');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('shows overrides as values and server defaults as placeholders', async () => {
     renderWith(<LlmSettingsSection />, settings());
 

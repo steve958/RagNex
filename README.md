@@ -70,7 +70,7 @@ OpenAI-compatible endpoints (OpenAI, vLLM) work too; see `LLM_PROVIDER` and
 ### Run it with Docker (production-style)
 
 ```bash
-cp .env.prod.example .env.prod          # fill in the four required secrets
+cp .env.prod.example .env.prod          # fill in the five required secrets
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
 
@@ -101,7 +101,7 @@ Requirements: Python 3.13, Node 22, Docker.
 ```bash
 # Data stores (Postgres, Redis, OpenSearch, MinIO) with published ports
 docker compose -f docker-compose.dev.yml up -d
-cp .env.example .env          # then set JWT_SECRET; all settings: docs/configuration.md
+cp .env.example .env          # then set JWT_SECRET and RAGNEX_ENCRYPTION_KEY; all settings: docs/configuration.md
 
 # Backend: installs dependencies only; code is imported as `backend.app.*` from the repo root
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\Activate.ps1

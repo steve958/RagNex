@@ -14,6 +14,7 @@ from backend.app.models.knowledge_base import KnowledgeBase
 from backend.app.models.tenant import Tenant
 from backend.app.services.cache import CacheService
 from backend.app.services.embeddings import EmbeddingConfig, create_embedding_service
+from backend.app.services.model_settings import effective_embedding_config
 from backend.app.services.opensearch import OpenSearchService
 
 
@@ -43,17 +44,8 @@ class SearchService:
                 tenant = res.scalar_one_or_none()
                 raw = dict(getattr(tenant, "embedding_config", {}) or {}) if tenant is not None else {}
 
-            cfg = {
-                "provider": raw.get("provider") or settings.embedding_provider,
-                "model": raw.get("model") or settings.embedding_model,
-                "base_url": raw.get("base_url"),
-                "api_key": raw.get("api_key"),
-                "timeout_s": float(raw.get("timeout_s") or 60.0),
-                "batch_size": int(raw.get("batch_size") or settings.embedding_batch_size),
-                "rps": float(raw.get("rps") or settings.embedding_rps),
-                "cache_ttl_s": int(raw.get("cache_ttl_s") or settings.embedding_cache_ttl_s),
-            }
-            return EmbeddingConfig(**cfg)
+            # Shared with the Settings checks, so search and indexing use what owners set.
+            return effective_embedding_config(raw)
         finally:
             await eng.dispose()
 

@@ -5,7 +5,8 @@ not overridden falls back to the server settings. Rules enforced on update:
 
 - base_url: only URLs on the server allowlist (settings.tenant_model_base_urls). Arbitrary
   URLs would let a tenant owner make the server call internal addresses (SSRF).
-- api_key: write-only; never returned. A tenant that switches to OpenAI while the server
+- api_key: write-only; never returned. Stored encrypted (core/encryption.py); only
+  stored_api_key() decrypts it. A tenant that switches to OpenAI while the server
   default is another provider must bring its own key, so it can't run on (and bill) the
   operator's key.
 - Embeddings: a new embedding model is test-called to check its vector size matches the
@@ -24,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.config import settings
+from backend.app.core.encryption import SecretUnavailable, decrypt, encrypt
 from backend.app.models.document import Document
 from backend.app.models.tenant import Tenant
 from backend.app.services.embeddings import EmbeddingConfig, create_embedding_service
@@ -74,19 +76,37 @@ class EmbeddingOverrides(BaseModel):
 # --- Effective configuration -------------------------------------------------------------
 
 
-def effective_llm_config(raw: dict) -> LLMConfig:
-    """Server defaults with the tenant's stored overrides applied."""
-    updates = {k: raw[k] for k in (*LLM_KEYS, "api_key") if raw.get(k) is not None}
+def stored_api_key(raw: dict) -> str | None:
+    """The decrypted API key from a stored config section. Raises SecretUnavailable if it
+    can't be decrypted."""
+    value = raw.get("api_key")
+    return decrypt(value) if value else None
+
+
+def api_key_readable(raw: dict) -> bool:
+    try:
+        stored_api_key(raw)
+    except SecretUnavailable:
+        return False
+    return True
+
+
+def effective_llm_config(raw: dict, *, with_key: bool = True) -> LLMConfig:
+    """Server defaults with the tenant's stored overrides applied. with_key=False leaves the
+    API key out, for uses that don't call the model (so an unreadable key doesn't block them)."""
+    updates = {k: raw[k] for k in LLM_KEYS if raw.get(k) is not None}
+    if with_key and raw.get("api_key"):
+        updates["api_key"] = stored_api_key(raw)
     return default_llm_config().model_copy(update=updates)
 
 
-def effective_embedding_config(raw: dict) -> EmbeddingConfig:
-    """Same resolution as search/indexing use (they read Tenant.embedding_config directly)."""
+def effective_embedding_config(raw: dict, *, with_key: bool = True) -> EmbeddingConfig:
+    """The embedding settings search and indexing use for a tenant's stored overrides."""
     return EmbeddingConfig(
         provider=raw.get("provider") or settings.embedding_provider,  # type: ignore[arg-type]
         model=raw.get("model") or settings.embedding_model,
         base_url=raw.get("base_url"),
-        api_key=raw.get("api_key"),
+        api_key=stored_api_key(raw) if with_key else None,
         timeout_s=float(raw.get("timeout_s") or 60.0),
         batch_size=int(raw.get("batch_size") or settings.embedding_batch_size),
         rps=float(raw.get("rps") or settings.embedding_rps),
@@ -109,7 +129,7 @@ def _merge(current: dict, req: BaseModel, keys: tuple[str, ...]) -> dict:
     merged |= {k: v for k, v in current.items() if k not in keys and k != "api_key"}
     if "api_key" in req.model_fields_set:
         if req.api_key:  # type: ignore[attr-defined]
-            merged["api_key"] = req.api_key  # type: ignore[attr-defined]
+            merged["api_key"] = encrypt(req.api_key)  # type: ignore[attr-defined]
     elif current.get("api_key"):
         merged["api_key"] = current["api_key"]
     if isinstance(merged.get("base_url"), str):
@@ -134,7 +154,7 @@ def _check_common(merged: dict, server_provider: str, what: str) -> None:
 def merge_llm_update(current: dict, req: LLMOverrides) -> dict:
     merged = _merge(current, req, LLM_KEYS)
     _check_common(merged, settings.llm_provider, "LLM")
-    cfg = effective_llm_config(merged)
+    cfg = effective_llm_config(merged, with_key=False)
     if cfg.context_window < cfg.max_tokens + _MIN_PROMPT_TOKENS:
         raise SettingsError(
             f"LLM: context window ({cfg.context_window}) must exceed max answer tokens "
@@ -174,14 +194,15 @@ async def merge_embedding_update(
     merged = _merge(current, req, EMBEDDING_KEYS)
     _check_common(merged, settings.embedding_provider, "Embeddings")
 
-    before, after = effective_embedding_config(current), effective_embedding_config(merged)
+    before = effective_embedding_config(current, with_key=False)
+    after = effective_embedding_config(merged, with_key=False)
     if (before.provider, before.model) != (after.provider, after.model):
         if await _has_indexed_documents(db, tenant_id):
             raise SettingsConflict(
                 "Embeddings: the model can't be changed while this workspace has indexed documents; "
                 "their vectors were made with the current model and would no longer match searches."
             )
-        dim = await _probe_dimension(after)
+        dim = await _probe_dimension(effective_embedding_config(merged))  # with the key
         if dim != settings.embedding_dimension:
             raise SettingsError(
                 f"Embeddings: model {after.model!r} produces {dim}-dimensional vectors, but the "
@@ -203,19 +224,25 @@ def _section_view(raw: dict, effective: BaseModel, defaults: BaseModel, keys: tu
         "defaults": {k: getattr(defaults, k) for k in keys if k != "base_url"},
         "overrides": {k: raw[k] for k in keys if raw.get(k) is not None},
         "has_api_key": bool(raw.get("api_key")),
+        # False when the stored key can't be decrypted (the server's encryption key changed):
+        # the owner needs to enter it again.
+        "api_key_readable": api_key_readable(raw),
     }
 
 
 async def settings_view(db: AsyncSession, tenant: Tenant, *, can_edit: bool) -> dict:
     llm_raw, emb_raw = tenant.llm_config or {}, tenant.embedding_config or {}
     embedding = _section_view(
-        emb_raw, effective_embedding_config(emb_raw), effective_embedding_config({}), EMBEDDING_KEYS
+        emb_raw,
+        effective_embedding_config(emb_raw, with_key=False),
+        effective_embedding_config({}, with_key=False),
+        EMBEDDING_KEYS,
     )
     embedding["locked"] = await _has_indexed_documents(db, tenant.id)
     embedding["dimension"] = settings.embedding_dimension
     return {
         "can_edit": can_edit,
         "allowed_base_urls": [u.strip().rstrip("/") for u in settings.tenant_model_base_urls],
-        "llm": _section_view(llm_raw, effective_llm_config(llm_raw), default_llm_config(), LLM_KEYS),
+        "llm": _section_view(llm_raw, effective_llm_config(llm_raw, with_key=False), default_llm_config(), LLM_KEYS),
         "embedding": embedding,
     }

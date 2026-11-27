@@ -25,6 +25,9 @@ export interface ModelSection<T> {
   /** Only the values this tenant has set. */
   overrides: Partial<T>;
   has_api_key: boolean;
+  /** False when the stored key can't be decrypted (the server's encryption key changed):
+   *  it has to be entered again. Missing from older servers. */
+  api_key_readable?: boolean;
 }
 
 export interface ModelSettings {

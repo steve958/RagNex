@@ -30,6 +30,7 @@ dependencies = [
   "opensearch-py>=2.4.0",
   # Auth: JWTs, password hashing, EmailStr validation, rate limiting
   "PyJWT>=2.8.0",
+  "cryptography>=42.0.0",  # encrypts workspace API keys at rest (core/encryption.py)
   "passlib>=1.7.4",
   "argon2-cffi>=23.1.0",
   "email-validator>=2.1.0",
