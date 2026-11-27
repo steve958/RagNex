@@ -12,7 +12,9 @@
 name: ragnex
 
 x-backend: &backend
-  image: ragnex-backend:${RAGNEX_VERSION:-latest}
+  # RAGNEX_IMAGE_PREFIX=ghcr.io/<owner>/ uses the images CI publishes (docker compose pull);
+  # empty = images built locally (up --build). See docs/deployment.md.
+  image: ${RAGNEX_IMAGE_PREFIX:-}ragnex-backend:${RAGNEX_VERSION:-latest}
   build:
     context: .
     dockerfile: docker/backend.Dockerfile
@@ -173,7 +175,7 @@ services:
         condition: service_healthy
 
   frontend:
-    image: ragnex-frontend:${RAGNEX_VERSION:-latest}
+    image: ${RAGNEX_IMAGE_PREFIX:-}ragnex-frontend:${RAGNEX_VERSION:-latest}
     build:
       context: .
       dockerfile: docker/frontend.Dockerfile

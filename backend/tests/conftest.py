@@ -54,6 +54,34 @@ async def _close_db_engine():
         await engine.dispose()
 
 
+def _require_stack() -> None:
+    """With RAGNEX_TESTS_REQUIRE_STACK=1 (set in CI), stop at once if a data store is down.
+    Locally, tests that need OpenSearch/MinIO skip when they're unreachable; in CI that
+    would let the run pass without testing anything that touches them."""
+    if os.environ.get("RAGNEX_TESTS_REQUIRE_STACK") != "1":
+        return
+    import httpx
+    import redis
+
+    from backend.app.core.config import settings
+
+    checks = {
+        "OpenSearch": lambda: httpx.get(settings.opensearch_url, timeout=5).raise_for_status(),
+        "MinIO": lambda: httpx.get(
+            f"{settings.s3_endpoint_url.rstrip('/')}/minio/health/live", timeout=5
+        ).raise_for_status(),
+        "Redis": lambda: redis.Redis.from_url(settings.redis_url, socket_timeout=5).ping(),
+    }
+    down = []
+    for name, check in checks.items():
+        try:
+            check()
+        except Exception as e:  # noqa: BLE001 - any failure means it's unusable
+            down.append(f"{name} ({type(e).__name__})")
+    if down:
+        pytest.exit(f"RAGNEX_TESTS_REQUIRE_STACK=1 but unreachable: {', '.join(down)}", returncode=1)
+
+
 def pytest_sessionstart(session):  # pragma: no cover
     # Ensure the DB schema matches current models.
     # Tests run against a dev Postgres (per earlier phases), so we apply migrations up-front.
@@ -65,3 +93,4 @@ def pytest_sessionstart(session):  # pragma: no cover
     cfg.set_main_option("script_location", str(backend_dir / "alembic"))
 
     command.upgrade(cfg, "head")
+    _require_stack()

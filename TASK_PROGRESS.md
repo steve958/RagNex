@@ -10,7 +10,7 @@ Last updated: 2026-11-27
 ## Decisions (2026-11-27)
 - License: MIT for RagNex. `deepdoc/` stays Apache-2.0 (derived from RAGFlow); see `LICENSE`, `NOTICE`, `deepdoc/LICENSE`. Done.
 - Unused storage helpers (`generate_presigned_url`, `get_usage_bytes`, `cleanup_orphaned_objects`): remove them, and add a "Download original" action served through the API (presigned URLs would point at MinIO's internal address). Done.
-- CI: GitHub Actions runs backend and frontend tests on every PR; merges to `master` build and publish both images to `ghcr.io`; add a `uv` lockfile.
+- CI: GitHub Actions runs backend and frontend tests on every PR; merges to `master` build and publish both images to `ghcr.io`; add a `uv` lockfile. Done: `.github/workflows/ci.yml`, `backend/uv.lock`.
 - Workspace model API keys: encrypt at rest with a new `RAGNEX_ENCRYPTION_KEY` setting, with a migration for existing keys. Done: Fernet (`core/encryption.py`), stored as `enc:v1:…`; migration 0006 encrypts existing keys (downgrade decrypts); rotation via `RAGNEX_ENCRYPTION_PREVIOUS_KEYS` and `python -m backend.app.services.stored_secrets reencrypt`; an unreadable key gives a clear 503 in chat and a notice in Settings, and the owner can enter it again. Search and indexing now resolve embedding settings through the same function as the Settings checks instead of their own copies.
 - Back on the list: re-ranking (P3-5), conversation summarization (P4-3), two-column PDF layout (P2-5).
 - Not planned: Kubernetes manifests and Helm chart (P7-2; Docker Compose is the supported deployment), chunking parity tests against RAGFlow (P6-2; no RAGFlow instance to compare with).
@@ -73,13 +73,13 @@ Notes:
 - 2025-12-17: OpenSearch requires `OPENSEARCH_INITIAL_ADMIN_PASSWORD` at startup; added to `docker-compose.dev.yml` and `.env.example`.
 - 2025-12-17: `scripts/setup-dev.ps1` may require `-ExecutionPolicy Bypass` on systems with script execution disabled.
 ### P0-3: CI/CD Pipeline Setup (aborted for now)
-- [ ] Configure CI (aborted)
-  - [ ] Lint check (ruff, eslint) (aborted)
-  - [ ] Type check (mypy, tsc) (aborted)
-  - [ ] Unit tests (pytest, jest) (aborted)
-  - [ ] Build verification (aborted)
-- [ ] Set up test coverage reporting (Codecov/SonarQube) (aborted)
-- [ ] Create Docker build workflow (aborted)
+- [x] Configure CI (2026-11-27: `.github/workflows/ci.yml`)
+  - [ ] Lint check (ruff, eslint) (not yet: ruff reports existing findings that need clearing first; no eslint config)
+  - [x] Type check: `tsc` runs as part of the frontend build; no mypy configuration yet
+  - [x] Unit tests: pytest (backend against real Postgres, Redis, OpenSearch and MinIO; fails rather than skips if one is down) and DeepDoc tests; vitest
+  - [x] Build verification: frontend build in CI; backend image built and published on `master`
+- [x] Set up test coverage reporting (printed in the CI log; no Codecov/SonarQube)
+- [x] Create Docker build workflow (publishes to ghcr.io on pushes to `master` and `v*` tags)
 - [ ] Configure staging deployment pipeline (optional) (aborted)
 - [ ] Set up dependency vulnerability scanning (Dependabot/Snyk) (aborted)
 
@@ -591,7 +591,7 @@ Notes:
     - files with no extension and empty files were accepted and failed later.
 
     All fixed. `services/parsing.py` `SUPPORTED_EXTENSIONS` is now the single list used by both upload checks and mirrored by the upload picker; a test keeps them in step. Legacy `.doc`, `.ppt` and `.xls` are refused at upload with the supported list. PDF is tested on a text PDF only (OCR for scanned PDFs needs the vision stack, which isn't in the image).
-- [ ] Run coverage reports in CI
+- [x] Run coverage reports in CI (2026-11-27; printed in the job log)
 
 ### P6-2: Integration Tests
 - [ ] Create integration test fixtures
@@ -654,8 +654,8 @@ Notes (2026-11-26 scan):
   - [x] Worker: same image as the backend, `worker` command
 - [x] Optimize image sizes (multi-stage builds: backend 557 MB, frontend 49 MB)
 - [x] Create `docker-compose.prod.yml`
-- [ ] Set up image registry
-- [ ] Create image tagging strategy (images are tagged `${RAGNEX_VERSION:-latest}`; no registry or CI yet)
+- [x] Set up image registry (2026-11-27: GitHub Container Registry, `ghcr.io/<owner>/ragnex-backend` and `ragnex-frontend`)
+- [x] Create image tagging strategy: `latest`/`master` for the newest `master`, `sha-<commit>`, and `1.2.3`/`1.2` for `v*` tags; `RAGNEX_IMAGE_PREFIX` + `RAGNEX_VERSION` select them in compose
 
 Notes:
 - 2026-11-26: The backend image runs as a non-root user and fails the build if the app, the Celery tasks or any document parser can't be imported (DeepDoc silently disables parsers whose dependencies are missing).

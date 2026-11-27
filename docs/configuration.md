@@ -123,7 +123,8 @@ Prod compose only:
 |---|---|---|
 | `RAGNEX_HTTP_PORT` | `8080` | Port the web app is published on. Use `127.0.0.1:8080` to accept connections only from the same machine (for a TLS proxy there). |
 | `RAGNEX_TRUSTED_PROXY` | `127.0.0.1/32` (none) | Address or CIDR of your reverse proxy, as seen by the `frontend` container. Only that proxy's `X-Forwarded-For` is believed. See [deployment.md](deployment.md#reverse-proxy-and-tls). |
-| `RAGNEX_VERSION` | `latest` | Tag for the built images. |
+| `RAGNEX_IMAGE_PREFIX` | empty | Registry path to pull images from, ending in `/` (for example `ghcr.io/OWNER/`, for the images CI publishes). Empty means images built locally with `up --build`. |
+| `RAGNEX_VERSION` | `latest` | Image tag: `latest`, a release such as `1.2.3`, or a commit such as `sha-abc1234`. |
 | `OPENSEARCH_HEAP` | `1g` | OpenSearch memory. About half the memory you give OpenSearch, and no more than 31g. |
 
 ## Web app
