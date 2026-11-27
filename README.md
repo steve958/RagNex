@@ -45,6 +45,12 @@ The following are explicitly out of scope for this project:
 - `docs/` – documentation
 - `scripts/` – developer scripts
 
+## Documentation
+- [User guide](docs/user-guide.md): getting started, knowledge bases and templates, documents, chat, settings
+- [API guide](docs/api.md): signing in, uploading, search and streaming chat; full reference at `/api/docs`
+- [Troubleshooting and FAQ](docs/troubleshooting.md)
+- [Deployment](docs/deployment.md) and [configuration reference](docs/configuration.md)
+
 ## Project status
 Work in progress.
 

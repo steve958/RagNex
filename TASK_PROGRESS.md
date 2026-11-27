@@ -681,11 +681,14 @@ Notes:
 - 2026-11-26: Sign-up can be closed (`REGISTRATION_ENABLED`) or limited to email domains (`REGISTRATION_EMAIL_DOMAINS`); operators create accounts with `python -m backend.app.services.accounts create-user` (own workspace, or `--workspace` to join one). The web app hides sign-up when closed (`GET /api/v1/auth/registration`). Rate-limit counts moved to Redis, so they hold across API processes and restarts, falling back to in-memory if Redis is unreachable.
 
 ### P7-4: User Documentation
-- [ ] Create getting started guide
-- [ ] Document UI features
-- [ ] Create API documentation
-- [ ] Create FAQ section
-- [ ] Create troubleshooting guide
+- [x] Create getting started guide (`docs/user-guide.md`)
+- [x] Document UI features (`docs/user-guide.md`)
+- [x] Create API documentation (`docs/api.md`; interactive reference now served at `/api/docs`, reachable through nginx)
+- [x] Create FAQ section (`docs/troubleshooting.md`)
+- [x] Create troubleshooting guide (`docs/troubleshooting.md`)
+
+Notes:
+- 2026-11-27: `backend/tests/test_api_guide.py` runs the API guide's examples against the real API, so the guide fails a test when it drifts from the code. Fixed on the way: the web app's upload helper sent the PDF page range as form fields, which the API ignores (it reads query parameters); unused so far. Gap noted in the guide: the web app always works in the user's first workspace and has no workspace switcher or members screen.
 
 ### P7-5: Developer Documentation
 - [ ] Document architecture overview
