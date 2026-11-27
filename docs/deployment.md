@@ -11,10 +11,11 @@ and a checklist for going live. Every setting is described in
 | Secret | Where | Who can use it |
 |---|---|---|
 | `JWT_SECRET` | `.env.prod` | Anyone who has it can sign in as any user. |
+| `RAGNEX_ENCRYPTION_KEY` | `.env.prod` | Together with the database or a backup of it, reads workspaces' model API keys. |
 | `POSTGRES_PASSWORD` | `.env.prod` | Full access to all data: users, workspaces, chats, and workspace API keys. |
 | `MINIO_ROOT_PASSWORD` | `.env.prod` | Full access to every uploaded file. |
 | `OPENAI_API_KEY` | `.env.prod` | Model usage billed to you. |
-| Workspace model API keys | Postgres, set by workspace owners in Settings | Model usage billed to that workspace's account. |
+| Workspace model API keys | Postgres, encrypted with `RAGNEX_ENCRYPTION_KEY`; set by workspace owners in Settings | Model usage billed to that workspace's account. |
 | User passwords | Postgres, as argon2 hashes | Not recoverable from the database. |
 | RagNex API keys | Postgres, as SHA-256 hashes | Shown once when created; not recoverable from the database. |
 
@@ -23,14 +24,16 @@ only by the account that runs Docker (`chmod 600 .env.prod`). Anyone who can run
 commands on the host can read these values from the containers (`docker inspect`), so treat
 Docker access as access to the secrets.
 
-**Workspace model API keys are stored in the database unencrypted.** The API never returns
-them, but anyone with the database or a backup of it can read them. Protect backups
-accordingly.
+Workspace model API keys are encrypted in the database with `RAGNEX_ENCRYPTION_KEY`, and the
+API never returns them. A database backup alone doesn't reveal them, so **store the
+encryption key separately from database backups**, but keep it somewhere safe: losing it
+means every workspace owner has to enter their keys again.
 
 ### Generating them
 
 ```bash
 openssl rand -hex 32    # JWT_SECRET (at least 32 bytes; the backend refuses weaker values)
+openssl rand -base64 32 # RAGNEX_ENCRYPTION_KEY (exactly 32 bytes, base64)
 openssl rand -hex 24    # POSTGRES_PASSWORD, MINIO_ROOT_PASSWORD
 ```
 
@@ -56,6 +59,7 @@ This recreates only the containers whose settings changed.
 | `JWT_SECRET` | Change it in `.env.prod`, then apply. | Everyone is signed out and logs in again. RagNex API keys keep working: they don't depend on this secret. |
 | `POSTGRES_PASSWORD` | Change it in the database **first**, then in `.env.prod`, then apply (see below). | None, if done in this order. Changing only `.env.prod` locks the API out of the database, because Postgres applies `POSTGRES_PASSWORD` only when its volume is first created. |
 | `MINIO_ROOT_PASSWORD` | Change it in `.env.prod`, then apply. | MinIO and the backend restart with the new password; uploads are briefly unavailable. |
+| `RAGNEX_ENCRYPTION_KEY` | In steps, keeping the old key readable (see below). | None, if done in steps. Replacing it outright makes stored workspace keys unreadable: owners must enter them again. |
 | `OPENAI_API_KEY` | Change it in `.env.prod`, then apply. | None. |
 | Workspace model API keys | The workspace owner replaces them in Settings. | Takes effect on the next request. |
 | A RagNex API key | Create a new key in Settings, switch clients to it, then revoke the old one. | The old key stops working when revoked. |
@@ -69,6 +73,24 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod exec postgres \
 ```
 
 (Use your `POSTGRES_USER` and `POSTGRES_DB` if you changed them.)
+
+### Rotating the encryption key
+
+1. Generate a new key. In `.env.prod`, move the current key into the list of previous
+   keys and set the new one:
+   ```bash
+   RAGNEX_ENCRYPTION_KEY=NEW_KEY
+   RAGNEX_ENCRYPTION_PREVIOUS_KEYS=["OLD_KEY"]
+   ```
+2. Apply. Stored keys are still readable through the previous key.
+3. Re-encrypt them under the new key:
+   ```bash
+   docker compose -f docker-compose.prod.yml --env-file .env.prod exec api      python -m backend.app.services.stored_secrets reencrypt
+   ```
+4. Remove the old key (`RAGNEX_ENCRYPTION_PREVIOUS_KEYS=[]`) and apply again.
+
+`python -m backend.app.services.stored_secrets check` lists any workspace whose stored key
+can't be decrypted. Those owners see a notice in Settings asking them to enter it again.
 
 ## Reverse proxy and TLS
 
@@ -159,10 +181,15 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 Database migrations run automatically before the new API and worker start. Back up
 Postgres first: migrations can't always be undone.
 
+**Upgrading from a version without `RAGNEX_ENCRYPTION_KEY`:** add it to `.env.prod` first
+(`openssl rand -base64 32`). Compose refuses to start without it, and the upgrade encrypts
+the workspace model API keys already stored.
+
 ## Go-live checklist
 
 **Before the first start**
 
+- [ ] A copy of `RAGNEX_ENCRYPTION_KEY` kept somewhere safe, apart from database backups.
 - [ ] `.env.prod` created from `.env.prod.example`, with generated secrets (see
       [Generating them](#generating-them)), and `chmod 600`.
 - [ ] Models available where `OLLAMA_BASE_URL` (or the OpenAI or vLLM settings) point:

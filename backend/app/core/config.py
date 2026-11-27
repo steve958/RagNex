@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     access_token_expires_minutes: int = 30
     refresh_token_expires_days: int = 14
 
+    # Encrypts secrets stored in the database (workspace model API keys); see
+    # core/encryption.py. Required: 32 random bytes in base64 (openssl rand -base64 32).
+    # Losing it makes stored keys unreadable (owners re-enter them). Previous keys: JSON list
+    # of old keys still accepted for decryption, during a rotation.
+    ragnex_encryption_key: str = ""
+    ragnex_encryption_previous_keys: list[str] = []
+
     # Self sign-up. Off: only operators create accounts (backend.app.services.accounts).
     # Email domains (JSON list, e.g. ["example.com"]): when set, only addresses at exactly
     # these domains may sign up.
@@ -97,6 +104,34 @@ class Settings(BaseSettings):
                 "JWT_SECRET must be set to a random value of at least 32 bytes "
                 "(generate one with: python -c \"import secrets; print(secrets.token_hex(32))\")."
             )
+        return value
+
+
+    @field_validator("ragnex_encryption_key")
+    @classmethod
+    def _require_encryption_key(cls, value: str) -> str:
+        from backend.app.core.encryption import normalize_key
+
+        if not value.strip():
+            raise ValueError(
+                "RAGNEX_ENCRYPTION_KEY must be set (generate one with: openssl rand -base64 32)."
+            )
+        try:
+            normalize_key(value)
+        except ValueError as e:
+            raise ValueError(f"RAGNEX_ENCRYPTION_KEY {e}.") from None
+        return value
+
+    @field_validator("ragnex_encryption_previous_keys")
+    @classmethod
+    def _check_previous_keys(cls, value: list[str]) -> list[str]:
+        from backend.app.core.encryption import normalize_key
+
+        for i, key in enumerate(value):
+            try:
+                normalize_key(key)
+            except ValueError as e:
+                raise ValueError(f"RAGNEX_ENCRYPTION_PREVIOUS_KEYS entry {i + 1} {e}.") from None
         return value
 
 

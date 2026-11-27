@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 import secrets
 from pathlib import Path
@@ -8,6 +9,15 @@ from pathlib import Path
 # Set before any backend module is imported (settings are read at import time); environment
 # variables take precedence over the .env file.
 os.environ["JWT_SECRET"] = secrets.token_hex(32)
+# Stored API keys in the shared dev database are encrypted with this key (migration 0006
+# runs at session start), so it must stay the same between runs and match the local app:
+# the developer's .env key if there is one, otherwise a fixed test-only key.
+if "RAGNEX_ENCRYPTION_KEY" not in os.environ:
+    from dotenv import dotenv_values
+
+    _env_file = Path(__file__).resolve().parents[2] / ".env"
+    if not (dotenv_values(_env_file).get("RAGNEX_ENCRYPTION_KEY") if _env_file.exists() else None):
+        os.environ["RAGNEX_ENCRYPTION_KEY"] = base64.b64encode(b"ragnex-test-encryption-key-32byt").decode()
 
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402

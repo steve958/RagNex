@@ -11,10 +11,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.app.core.celery_app import celery_app
 from backend.app.core.config import settings
+from backend.app.core.encryption import SecretUnavailable
 from backend.app.models.document import Chunk, Document
 from backend.app.models.tenant import Tenant
 from backend.app.services.cache import CacheService
 from backend.app.services.embeddings import EmbeddingConfig, create_embedding_service
+from backend.app.services.model_settings import effective_embedding_config
 from backend.app.services.opensearch import OpenSearchService
 
 
@@ -91,17 +93,8 @@ async def _load_embedding_config(tenant_id: uuid.UUID) -> EmbeddingConfig:
             tenant = res.scalar_one_or_none()
             raw = dict(getattr(tenant, "embedding_config", {}) or {}) if tenant is not None else {}
 
-        cfg = {
-            "provider": raw.get("provider") or settings.embedding_provider,
-            "model": raw.get("model") or settings.embedding_model,
-            "base_url": raw.get("base_url"),
-            "api_key": raw.get("api_key"),
-            "timeout_s": float(raw.get("timeout_s") or 60.0),
-            "batch_size": int(raw.get("batch_size") or settings.embedding_batch_size),
-            "rps": float(raw.get("rps") or settings.embedding_rps),
-            "cache_ttl_s": int(raw.get("cache_ttl_s") or settings.embedding_cache_ttl_s),
-        }
-        return EmbeddingConfig(**cfg)
+        # Shared with the Settings checks, so search and indexing use what owners set.
+        return effective_embedding_config(raw)
     finally:
         await eng.dispose()
 
@@ -229,7 +222,8 @@ def index_document(self, document_id: str, tenant_id: str) -> dict:
         raise
     except Exception as e:
         retries = int(getattr(self.request, "retries", 0) or 0)
-        if retries < 3:
+        # An undecryptable API key won't fix itself: fail now, with the explanation.
+        if retries < 3 and not isinstance(e, SecretUnavailable):
             raise self.retry(exc=e, countdown=min(60, 2 ** (retries + 1)))
 
         try:
