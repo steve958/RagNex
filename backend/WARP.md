@@ -47,7 +47,7 @@ Celery is configured in `app/core/celery_app.py` to use Redis as both broker and
 - Start a worker for all queues (default, parsing, embedding, indexing):
   - `celery -A backend.app.core.celery_app.celery_app worker -Q default,parsing,embedding,indexing --loglevel=info`
 
-For local development/tests you can avoid running a worker by setting `CELERY_TASK_ALWAYS_EAGER=true` and `CELERY_TASK_EAGER_PROPAGATES=true` in `.env` (these map to `Settings.celery_task_always_eager` and `Settings.celery_task_eager_propagates`).
+There is no eager mode: tasks call `asyncio.run()`, which fails inside the API's event loop, so run a worker (or call a task directly; see `docs/development.md`, Debugging).
 
 ### Running tests (pytest)
 

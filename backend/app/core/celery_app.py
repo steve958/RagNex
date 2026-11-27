@@ -48,9 +48,9 @@ celery_app.conf.accept_content = ["json"]
 celery_app.conf.task_serializer = "json"
 celery_app.conf.result_serializer = "json"
 
-# Testing / local dev toggles
-celery_app.conf.task_always_eager = settings.celery_task_always_eager
-celery_app.conf.task_eager_propagates = settings.celery_task_eager_propagates
+# No "eager" mode (running tasks inside the API process): the tasks call asyncio.run(),
+# which fails inside the API's running event loop. To debug a task, call it directly
+# (docs/development.md, Debugging).
 
 # Route tasks by name prefix
 celery_app.conf.task_routes = {

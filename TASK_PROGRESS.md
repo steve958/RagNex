@@ -703,8 +703,11 @@ Notes:
 - 2026-11-27: `backend/tests/test_api_guide.py` runs the API guide's examples against the real API, so the guide fails a test when it drifts from the code. Fixed on the way: the web app's upload helper sent the PDF page range as form fields, which the API ignores (it reads query parameters); unused so far. Gap noted in the guide then: the web app always worked in the user's first workspace, with no switcher or members screen. Closed 2026-11-27: workspace menu in the header and a Workspace settings tab (members listed owners first; owners add people by email, change roles, remove; switch and create workspaces). API: `GET /tenants` includes your role, `GET /tenants/{id}/members`, and `POST /tenants/{id}/members` accepts `email`.
 
 ### P7-5: Developer Documentation
-- [ ] Document architecture overview
-- [ ] Create contribution guide
-- [ ] Document extending the system
-- [ ] Create debugging guide
-- [ ] Document release process
+- [x] Document architecture overview (`docs/architecture.md`)
+- [x] Create contribution guide (`CONTRIBUTING.md`, `docs/development.md`)
+- [x] Document extending the system (`docs/extending.md`)
+- [x] Create debugging guide (`docs/development.md`, Debugging)
+- [x] Document release process (`docs/development.md`, Releasing)
+
+Notes:
+- 2026-11-27: `backend/tests/test_docs.py` checks that every setting is in `docs/configuration.md` and that links between the docs resolve. Found while writing: `CELERY_TASK_ALWAYS_EAGER` never worked through the API (tasks call `asyncio.run()` inside the API's event loop; verified: uploads fail with RuntimeError) and no test used it, so it and `CELERY_TASK_EAGER_PROPAGATES` were removed; the debugging guide shows calling a task directly instead (verified on the dev stack). The `embed_texts` task is registered but never queued (noted in the architecture doc).

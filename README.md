@@ -50,6 +50,9 @@ The following are explicitly out of scope for this project:
 - [API guide](docs/api.md): signing in, uploading, search and streaming chat; full reference at `/api/docs`
 - [Troubleshooting and FAQ](docs/troubleshooting.md)
 - [Deployment](docs/deployment.md) and [configuration reference](docs/configuration.md)
+- For developers: [architecture](docs/architecture.md), [development](docs/development.md)
+  (setup, tests, debugging, releases), [extending RagNex](docs/extending.md), and
+  [contributing](CONTRIBUTING.md)
 
 ## Project status
 Work in progress.

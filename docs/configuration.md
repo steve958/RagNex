@@ -178,9 +178,3 @@ Prod compose only:
 | `RAGNEX_API_UPSTREAM` | frontend container | API address nginx forwards to (default `api:8000`). |
 | `RAGNEX_MAX_UPLOAD_MB` | frontend container | nginx's upload limit. Prod compose sets it from `MAX_UPLOAD_SIZE_MB`. |
 
-## Tests only
-
-| Variable | Default | Notes |
-|---|---|---|
-| `CELERY_TASK_ALWAYS_EAGER` | `false` | Run background tasks inside the API process instead of the worker. For tests; never in production. |
-| `CELERY_TASK_EAGER_PROPAGATES` | `true` | With the above, raise task errors in the caller. |
