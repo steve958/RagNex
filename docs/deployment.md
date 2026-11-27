@@ -191,6 +191,13 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 Database migrations run automatically before the new API and worker start. Back up
 Postgres first: migrations can't always be undone.
 
+**MinIO image:** the official `minio/minio` image is no longer published, so RagNex uses
+Chainguard's maintained build of the same server (`cgr.dev/chainguard/minio`), pinned by
+digest in the compose files. Existing MinIO data volumes work with it unchanged. To update
+it, run `docker pull cgr.dev/chainguard/minio:latest`, put the new digest
+(`docker image inspect --format '{{index .RepoDigests 0}}' cgr.dev/chainguard/minio:latest`)
+into `docker-compose.prod.yml`, and apply.
+
 **Upgrading from a version without `RAGNEX_ENCRYPTION_KEY`:** add it to `.env.prod` first
 (`openssl rand -base64 32`). Compose refuses to start without it, and the upgrade encrypts
 the workspace model API keys already stored.

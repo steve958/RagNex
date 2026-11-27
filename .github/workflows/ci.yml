@@ -72,11 +72,13 @@ jobs:
           persist-credentials: false
 
       # Service containers can't be given a command, and MinIO needs `server /data`.
+      # Same image as the compose files (minio/minio is no longer published).
       - name: Start MinIO
         run: |
           docker run -d --name minio -p 9000:9000 \
             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio:latest server /data
+            cgr.dev/chainguard/minio@sha256:b288eaa709ba2f799a39e9a8ceda71a08fabf90109b12c90badba9afff29485c \
+            server /data
           for _ in $(seq 1 30); do
             curl -fsS http://localhost:9000/minio/health/live && exit 0
             sleep 2

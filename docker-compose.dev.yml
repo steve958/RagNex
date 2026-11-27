@@ -72,9 +72,14 @@ services:
       - "5601:5601"
 
   minio:
-    image: minio/minio:latest
+    # The official minio/minio image is no longer published (Docker Hub repository removed).
+    # Chainguard's maintained build of the same MinIO server; it only publishes :latest, so
+    # it's pinned by digest (MinIO RELEASE.2026-11-23). To update: docker pull
+    # cgr.dev/chainguard/minio:latest, then replace the digest with the new one.
+    image: cgr.dev/chainguard/minio@sha256:b288eaa709ba2f799a39e9a8ceda71a08fabf90109b12c90badba9afff29485c
     container_name: ragnex-minio
-    command: server /data --console-address ":9001"
+    user: "0:0"  # existing volumes were written by root (the old image's user)
+    command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -84,7 +89,8 @@ services:
     volumes:
       - miniodata:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
+      # The image has no curl or grep: bash makes the request and checks the status line.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /minio/health/ready HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && read -r status <&3 && [[ $$status == *' 200 '* ]]"]
       interval: 10s
       timeout: 5s
       retries: 20

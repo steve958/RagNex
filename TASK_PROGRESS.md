@@ -190,6 +190,7 @@ Notes:
 - 2025-12-18: Added unit tests in `backend/tests/test_storage.py` and an optional MinIO integration smoke test (run with `RUN_MINIO_TESTS=1`).
 - 2025-12-18: Verified test suite passes (`15 passed, 1 skipped`).
 - 2026-11-27: Removed `generate_presigned_url`, `get_usage_bytes` and `cleanup_orphaned_objects`, which had no callers; presigned URLs would point at MinIO's internal address, which browsers can't reach. Added a download endpoint that streams the file through the API after the usual workspace and API-key checks, always as an attachment (`application/octet-stream`, `nosniff`, sandboxed), so an uploaded HTML file can't run scripts in the app. The web app offers "Download" on each document and "Download original" in the chunk viewer, which citations open.
+- 2026-11-27: The official `minio/minio` image was removed from Docker Hub (CI failed at "Start MinIO"; fresh installs couldn't start). Switched dev, prod and CI to Chainguard's maintained build, `cgr.dev/chainguard/minio`, pinned by digest (MinIO RELEASE.2026-11-23), running as root like the old image because existing volumes are root-owned. Verified on a copy of the dev volume: all 28 buckets and 122 objects read back byte-identical, writes work; then the full suite passed against it. Health checks use bash (the image has no curl or grep).
 
 ### P1-5: Redis Caching & Queue Setup
 - [x] Create Redis client wrapper with connection pooling
