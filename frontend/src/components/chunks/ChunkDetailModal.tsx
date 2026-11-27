@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 import type { Chunk } from '../../services/chunkApi';
+import { downloadDocument } from '../../services/documentApi';
+import { errorDetail } from '../../services/errors';
 
 interface Props {
   open: boolean;
@@ -26,7 +28,22 @@ const highlightText = (text: string, query: string | undefined) => {
 };
 
 export const ChunkDetailModal: React.FC<Props> = ({ open, chunk, searchTerm, onClose }) => {
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
   if (!open || !chunk) return null;
+
+  const handleDownload = async () => {
+    setDownloadError(null);
+    setDownloading(true);
+    try {
+      await downloadDocument(chunk.document_id);
+    } catch (err: unknown) {
+      setDownloadError(errorDetail(err, 'Download failed.'));
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70">
@@ -45,7 +62,21 @@ export const ChunkDetailModal: React.FC<Props> = ({ open, chunk, searchTerm, onC
           Document ID: <span className="font-mono">{chunk.document_id}</span>
           {chunk.page != null && <span> • page {chunk.page}</span>}
           {chunk.token_count != null && <span> • tokens {chunk.token_count}</span>}
+          {' • '}
+          <button
+            type="button"
+            onClick={handleDownload}
+            disabled={downloading}
+            className="text-sky-400 underline underline-offset-2 hover:text-sky-300 disabled:opacity-60"
+          >
+            {downloading ? 'Downloading…' : 'Download original'}
+          </button>
         </p>
+        {downloadError && (
+          <p role="alert" className="mb-2 text-[11px] text-red-400">
+            {downloadError}
+          </p>
+        )}
         <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">
           {highlightText(chunk.content, searchTerm)}
         </div>

@@ -64,7 +64,7 @@ def create_app() -> FastAPI:
             allow_origins=settings.cors_origins,
             allow_methods=["*"],
             allow_headers=["*"],
-            expose_headers=["X-Request-ID"],
+            expose_headers=["X-Request-ID", "Content-Disposition"],
         )
 
     # Safety net: a value the database rejects (too long for its column, or containing a

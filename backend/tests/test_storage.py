@@ -62,8 +62,9 @@ async def test_minio_roundtrip_smoke():
     got = await svc.download_file(tenant_id, key)
     assert got == b"hello"
 
-    url = await svc.generate_presigned_url(tenant_id, key, expires=60)
-    assert isinstance(url, str) and url
+    size, chunks = await svc.stream_file(tenant_id, key, chunk_size=2)
+    assert size == 5
+    assert list(chunks) == [b"he", b"ll", b"o"]
 
     await svc.delete_file(tenant_id, key)
 

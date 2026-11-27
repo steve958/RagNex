@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   deleteDocument,
+  downloadDocument,
   DocumentStatus,
   isProcessing,
   listDocumentsForKnowledgeBase,
@@ -52,6 +53,11 @@ export const DocumentList: React.FC<Props> = ({ kbId, onDocumentClick }) => {
       refresh();
     },
     onError: (err) => setNotice({ kind: 'error', text: errorDetail(err) }),
+  });
+
+  const download = useMutation({
+    mutationFn: (doc: DocumentStatus) => downloadDocument(doc.id, doc.filename),
+    onError: (err) => setNotice({ kind: 'error', text: errorDetail(err, 'Download failed.') }),
   });
 
   const handleDelete = async (doc: DocumentStatus) => {
@@ -149,6 +155,15 @@ export const DocumentList: React.FC<Props> = ({ kbId, onDocumentClick }) => {
                     Reprocess
                   </button>
                 )}
+                <button
+                  type="button"
+                  disabled={download.isPending && download.variables?.id === doc.id}
+                  onClick={() => download.mutate(doc)}
+                  className={smallButton}
+                  aria-label={`Download ${doc.filename}`}
+                >
+                  Download
+                </button>
                 <button type="button" disabled={isDeleting} onClick={() => handleDelete(doc)} className={smallButton}>
                   Delete
                 </button>

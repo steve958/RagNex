@@ -9,7 +9,7 @@ Last updated: 2026-11-27
 
 ## Decisions (2026-11-27)
 - License: MIT for RagNex. `deepdoc/` stays Apache-2.0 (derived from RAGFlow); see `LICENSE`, `NOTICE`, `deepdoc/LICENSE`. Done.
-- Unused storage helpers (`generate_presigned_url`, `get_usage_bytes`, `cleanup_orphaned_objects`): remove them, and add a "Download original" action served through the API (presigned URLs would point at MinIO's internal address).
+- Unused storage helpers (`generate_presigned_url`, `get_usage_bytes`, `cleanup_orphaned_objects`): remove them, and add a "Download original" action served through the API (presigned URLs would point at MinIO's internal address). Done.
 - CI: GitHub Actions runs backend and frontend tests on every PR; merges to `master` build and publish both images to `ghcr.io`; add a `uv` lockfile.
 - Workspace model API keys: encrypt at rest with a new `RAGNEX_ENCRYPTION_KEY` setting, with a migration for existing keys.
 - Back on the list: re-ranking (P3-5), conversation summarization (P4-3), two-column PDF layout (P2-5).
@@ -181,13 +181,15 @@ Notes:
 - [x] Implement bucket-per-tenant strategy
 - [x] Add file type validation
 - [x] Implement chunked upload for large files
-- [x] Add cleanup job for orphaned files
-- [x] Create storage usage tracking per tenant
+- [ ] Add cleanup job for orphaned files (dropped 2026-11-27: deletion already purges stored files, and `deletion_backfill` covers older deletions)
+- [ ] Create storage usage tracking per tenant (dropped 2026-11-27: the database records each file's size, so a total can come from there if quotas are added)
+- [x] Download the original file (`GET /api/v1/documents/{id}/file`)
 
 Notes:
 - 2025-12-18: Implemented `StorageService` in `backend/app/services/storage.py` (upload/download/delete/presign, per-tenant buckets).
 - 2025-12-18: Added unit tests in `backend/tests/test_storage.py` and an optional MinIO integration smoke test (run with `RUN_MINIO_TESTS=1`).
 - 2025-12-18: Verified test suite passes (`15 passed, 1 skipped`).
+- 2026-11-27: Removed `generate_presigned_url`, `get_usage_bytes` and `cleanup_orphaned_objects`, which had no callers; presigned URLs would point at MinIO's internal address, which browsers can't reach. Added a download endpoint that streams the file through the API after the usual workspace and API-key checks, always as an attachment (`application/octet-stream`, `nosniff`, sandboxed), so an uploaded HTML file can't run scripts in the app. The web app offers "Download" on each document and "Download original" in the chunk viewer, which citations open.
 
 ### P1-5: Redis Caching & Queue Setup
 - [x] Create Redis client wrapper with connection pooling
@@ -576,7 +578,7 @@ Notes:
     - an API key with no scopes could be created.
 
     All fixed. New tests: `test_tenant_management.py`, `test_auth_failures.py`, `test_knowledgebase_crud.py`, non-streaming LLM parsing, health failure output; frontend chat streaming, upload form, API keys section.
-  - Unused: `StorageService.get_usage_bytes`, `cleanup_orphaned_objects` and `generate_presigned_url` have no callers, although P1-4 marks "storage usage tracking" and "orphan cleanup job" as done. Decide whether to wire them up or remove them.
+  - Unused: `StorageService.get_usage_bytes`, `cleanup_orphaned_objects` and `generate_presigned_url` had no callers. Removed 2026-11-27; see P1-4.
 - [x] Frontend unit tests
   - 2026-11-26: Tooling upgraded: vite 5→8, vitest 1→5, @vitejs/plugin-react 4→6, jsdom 24→29, Testing Library react 14→16 and jest-dom 6→8. react-router-dom 6→7.18 fixes a runtime vulnerability. `npm audit`: 0 vulnerabilities (was 7). React 18, Tailwind 3 and TypeScript 5 are unchanged; each of those upgrades is its own migration. The Windows lowercase-drive-letter bug ("failed to find the runner") persists in vitest 5. `npm test` now runs it through `frontend/scripts/vitest.mjs`, which starts Vitest from the canonical path.
 - [x] DeepDoc parser tests
