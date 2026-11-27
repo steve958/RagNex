@@ -412,7 +412,9 @@ Notes:
 - [x] Ollama
 - [x] vLLM
 - [x] OpenAI
-- [ ] Anthropic
+- [x] Anthropic (2026-11-27; `services/llm_anthropic.py`, official `anthropic` SDK)
+  - `LLM_PROVIDER=anthropic` or a workspace setting (own key required unless it's the server default); answers and summaries only, no embeddings. System messages become Claude's `system` field; no temperature (current models reject it); every request streams; `stop_reason: "refusal"` raises `LLMRefusal`, shown in chat as "The model declined to answer this request"; server-side refusal fallback (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`) on supported models, `ANTHROPIC_REFUSAL_FALLBACK` to turn it off; a cut-off answer (`max_tokens`) is logged with a hint, since thinking counts toward the limit.
+  - Tested with the real SDK against a mocked HTTP transport replaying the Messages API's event stream. Not yet run against the live API.
 - [ ] DeepSeek
 - [x] Create LLM configuration per tenant (and per-tenant embedding settings)
 - [x] Add token counting and limit enforcement (prompt budget; see P4-4)

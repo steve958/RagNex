@@ -22,6 +22,14 @@ class LLMError(RuntimeError):
     """Raised when a provider returns an error payload (as opposed to an HTTP error)."""
 
 
+class LLMRefusal(LLMError):
+    """The model declined to answer (e.g. Claude's stop_reason "refusal")."""
+
+    def __init__(self, category: str | None = None):
+        self.category = category
+        super().__init__("The model declined to answer this request" + (f" ({category})" if category else ""))
+
+
 class LLMMessage(BaseModel):
     role: Role
     content: str = Field(min_length=1)
@@ -35,7 +43,7 @@ class LLMConfig(BaseModel):
     - OpenAI-compatible /v1/chat/completions endpoints (OpenAI, vLLM, etc.).
     """
 
-    provider: Literal["ollama", "openai", "vllm"] = "ollama"
+    provider: Literal["ollama", "openai", "vllm", "anthropic"] = "ollama"
     model: str
     api_key: str | None = None
     base_url: str | None = None
@@ -225,6 +233,11 @@ def create_llm_service(cfg: LLMConfig) -> LLMService:
         return OllamaLLM(cfg)
     if cfg.provider in {"openai", "vllm"}:
         return OpenAICompatibleLLM(cfg)
+    if cfg.provider == "anthropic":
+        # Its own module: it uses the anthropic SDK (imported here to avoid a cycle).
+        from backend.app.services.llm_anthropic import AnthropicLLM
+
+        return AnthropicLLM(cfg)
     raise ValueError(f"Unknown LLM provider: {cfg.provider}")
 
 

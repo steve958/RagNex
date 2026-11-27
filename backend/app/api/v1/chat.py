@@ -19,7 +19,7 @@ from backend.app.core.validation import Name, Text
 from backend.app.core.deps import require_tenant_membership
 from backend.app.models.chat import ChatMessage, ChatSession
 from backend.app.models.knowledge_base import KnowledgeBase
-from backend.app.services.llm import LLMConfig, LLMMessage, LLMService, LLMResult, create_llm_service
+from backend.app.services.llm import LLMConfig, LLMMessage, LLMRefusal, LLMService, LLMResult, create_llm_service
 from backend.app.services.model_settings import load_tenant_llm_config
 from backend.app.services.conversation_summary import refresh_summary
 from backend.app.services.prompt_budget import build_prompt
@@ -445,7 +445,11 @@ async def send_message(
     turn = await _prepare_turn(db, tenant_id, user.id, session_id, req)
 
     llm: LLMService = _make_llm_service(turn.llm_config)
-    result: LLMResult = await llm.generate(turn.llm_messages)
+    try:
+        result: LLMResult = await llm.generate(turn.llm_messages)
+    except LLMRefusal as e:
+        # Not committed, so the question is rolled back too, as with an empty reply.
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
     if not result.content.strip():
         # Not committed, so the user message is rolled back too and can simply be resent.
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_EMPTY_REPLY)
@@ -509,6 +513,10 @@ async def _generate_and_save(
             async for fragment in llm.generate_stream(turn.llm_messages):
                 parts.append(fragment)
                 events.put_nowait(("delta", {"text": fragment}))
+        except LLMRefusal as exc:
+            logger.info("The model declined to answer in chat session %s: %s", session_id, exc)
+            events.put_nowait(("error", {"detail": str(exc)}))
+            return
         except Exception as exc:  # noqa: BLE001 - surface any provider failure to the client
             logger.exception("LLM streaming failed for chat session %s", session_id)
             events.put_nowait(("error", {"detail": f"Generation failed: {type(exc).__name__}"}))

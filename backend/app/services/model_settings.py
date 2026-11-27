@@ -32,6 +32,11 @@ from backend.app.services.embeddings import EmbeddingConfig, create_embedding_se
 from backend.app.services.llm import LLMConfig, default_llm_config
 
 Provider = Literal["ollama", "openai", "vllm"]
+# Chat models can also come from Anthropic; it has no embedding API.
+LLMProvider = Literal["ollama", "openai", "vllm", "anthropic"]
+# Hosted providers billed to an account: a workspace switching to one (when the server
+# default is something else) must bring its own key, so it can't run on the operator's.
+_PAID_PROVIDERS = {"openai", "anthropic"}
 
 LLM_KEYS = ("provider", "model", "temperature", "max_tokens", "context_window", "base_url")
 EMBEDDING_KEYS = ("provider", "model", "base_url")
@@ -53,7 +58,7 @@ class LLMOverrides(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    provider: Provider | None = None
+    provider: LLMProvider | None = None
     model: str | None = Field(default=None, min_length=1, max_length=200)
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_tokens: int | None = Field(default=None, ge=16, le=65_536)
@@ -147,8 +152,9 @@ def _check_common(merged: dict, server_provider: str, what: str) -> None:
                 "add it to TENANT_MODEL_BASE_URLS."
             )
     provider = merged.get("provider") or server_provider
-    if provider == "openai" and provider != server_provider and not merged.get("api_key"):
-        raise SettingsError(f"{what}: an API key is required to use OpenAI with this workspace.")
+    if provider in _PAID_PROVIDERS and provider != server_provider and not merged.get("api_key"):
+        name = "OpenAI" if provider == "openai" else "Anthropic"
+        raise SettingsError(f"{what}: an API key is required to use {name} with this workspace.")
 
 
 def merge_llm_update(current: dict, req: LLMOverrides) -> dict:

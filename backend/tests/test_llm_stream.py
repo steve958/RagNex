@@ -172,6 +172,6 @@ async def test_generate_raises_on_http_errors(monkeypatch):
 
 
 def test_unknown_provider_is_rejected():
-    cfg = LLMConfig(provider="ollama", model="m").model_copy(update={"provider": "anthropic"})
+    cfg = LLMConfig(provider="ollama", model="m").model_copy(update={"provider": "no-such-provider"})
     with pytest.raises(ValueError, match="Unknown LLM provider"):
         llm_module.create_llm_service(cfg)

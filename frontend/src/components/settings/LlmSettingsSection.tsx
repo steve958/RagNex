@@ -9,6 +9,7 @@ import {
   FormStatus,
   optionalNumber,
   optionalText,
+  LLM_PROVIDERS,
   ProviderSelect,
   ReadOnlyNote,
   SaveButton,
@@ -93,6 +94,7 @@ export const LlmSettingsSection: React.FC = () => {
               value={provider}
               serverDefault={defaults.provider}
               onChange={setProvider}
+              options={LLM_PROVIDERS}
             />
           </Field>
           <Field id="llm-model" label="Model">
@@ -104,7 +106,15 @@ export const LlmSettingsSection: React.FC = () => {
             />
           </Field>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field id="llm-temperature" label="Temperature" hint="0 = focused, 2 = creative">
+            <Field
+              id="llm-temperature"
+              label="Temperature"
+              hint={
+                (provider || defaults.provider) === 'anthropic'
+                  ? 'Not used by Claude models: they set it themselves.'
+                  : '0 = focused, 2 = creative'
+              }
+            >
               <TextInput
                 id="llm-temperature"
                 type="number"

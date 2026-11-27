@@ -1,9 +1,11 @@
 import { apiClient } from './apiClient';
 
 export type ModelProvider = 'ollama' | 'openai' | 'vllm';
+/** Chat models can also come from Anthropic, which has no embedding API. */
+export type LlmProvider = ModelProvider | 'anthropic';
 
 export interface LlmValues {
-  provider: ModelProvider;
+  provider: LlmProvider;
   model: string;
   temperature: number;
   max_tokens: number;

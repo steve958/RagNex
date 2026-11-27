@@ -7,6 +7,7 @@ import { errorDetail as baseErrorDetail } from '../../services/errors';
 import {
   EmbeddingUpdate,
   getModelSettings,
+  LlmProvider,
   LlmUpdate,
   ModelProvider,
   ModelSettings,
@@ -19,7 +20,13 @@ export const PROVIDERS: { value: ModelProvider; label: string }[] = [
   { value: 'vllm', label: 'vLLM (OpenAI-compatible)' },
 ];
 
-export const providerLabel = (p: ModelProvider) => PROVIDERS.find((x) => x.value === p)?.label ?? p;
+/** For the chat model: the embedding providers, plus Anthropic. */
+export const LLM_PROVIDERS: { value: LlmProvider; label: string }[] = [
+  ...PROVIDERS,
+  { value: 'anthropic', label: 'Anthropic (Claude)' },
+];
+
+export const providerLabel = (p: LlmProvider) => LLM_PROVIDERS.find((x) => x.value === p)?.label ?? p;
 
 const queryKey = (tenantId: string | null) => ['model-settings', tenantId];
 
@@ -80,13 +87,14 @@ export const TextInput: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = 
 export const ProviderSelect: React.FC<{
   id: string;
   value: string;
-  serverDefault: ModelProvider;
+  serverDefault: LlmProvider;
   onChange: (value: string) => void;
   disabled?: boolean;
-}> = ({ id, value, serverDefault, onChange, disabled }) => (
+  options?: { value: LlmProvider; label: string }[];
+}> = ({ id, value, serverDefault, onChange, disabled, options = PROVIDERS }) => (
   <select id={id} value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} className={inputClass}>
     <option value="">Server default ({providerLabel(serverDefault)})</option>
-    {PROVIDERS.map((p) => (
+    {options.map((p) => (
       <option key={p.value} value={p.value}>
         {p.label}
       </option>
@@ -129,7 +137,7 @@ export const ApiKeyField: React.FC<{
     hint={
       hasKey
         ? 'A key is stored for this workspace. It is never shown; enter a new one to replace it.'
-        : "Needed for OpenAI, unless it's the server's default provider. Stored keys are never shown."
+        : "Needed for OpenAI or Anthropic, unless it's the server's default provider. Stored keys are never shown."
     }
   >
     <TextInput
