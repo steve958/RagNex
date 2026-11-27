@@ -35,7 +35,7 @@ within the limits described under [Workspace model overrides](#workspace-model-o
 
 | Variable | Default | Prod compose | Notes |
 |---|---|---|---|
-| `LLM_PROVIDER` | `ollama` | yes | `ollama`, `openai` or `vllm`. `openai` works with any OpenAI-compatible API (for example DeepSeek, with `OPENAI_BASE_URL` set to its endpoint). |
+| `LLM_PROVIDER` | `ollama` | yes | `ollama`, `openai`, `vllm` or `anthropic`. `openai` works with any OpenAI-compatible API (for example DeepSeek, with `OPENAI_BASE_URL` set to its endpoint). For `anthropic`, see [Claude models](#claude-models). |
 | `LLM_MODEL` | `llama3` | yes | Model name as the provider knows it. For Ollama, pull it first (`ollama pull llama3`). |
 | `LLM_CONTEXT_WINDOW` | `8192` | yes | The model's total context size in tokens (prompt plus answer). Chat prompts are trimmed to fit, so **set this to the model's real context size**. Too high and long chats fail; too low and answers use less of your documents than they could. |
 | `LLM_MAX_TOKENS` | `2048` | yes | Most tokens an answer may use. This much of the context window is kept free for the answer. |
@@ -51,6 +51,28 @@ within the limits described under [Workspace model overrides](#workspace-model-o
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | yes | Endpoint for the `openai` provider. |
 | `OPENAI_API_KEY` | empty | yes | Key for the `openai` provider. Never sent to vLLM servers. |
 | `VLLM_BASE_URL` | empty | yes | Endpoint for the `vllm` provider (OpenAI-compatible, e.g. `http://gpu-box:8000/v1`). Required when a provider is `vllm`. The server has no vLLM key setting: use a vLLM server that doesn't require one, or have the workspace owner set a key in Settings. |
+
+### Claude models
+
+With `LLM_PROVIDER=anthropic`, answers and conversation summaries come from Anthropic's
+Claude models, through the official `anthropic` SDK. Embeddings still need one of the other
+providers: Anthropic has no embedding API.
+
+| Variable | Default | Prod compose | Notes |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | empty | yes | API key from the Claude Console. Workspaces that set their own key in Settings use theirs. |
+| `ANTHROPIC_REFUSAL_FALLBACK` | `true` | yes | When Claude declines a request, retry it server-side on a fallback model Anthropic picks, on the models that support it (Claude Opus 5.5 and 5, Sonnet 5.5, Fable 5.1 and 5.2). Off: a declined request shows "The model declined to answer this request". |
+
+Set the shared model settings for Claude too:
+
+- `LLM_MODEL`: a Claude model ID, for example `claude-opus-5-5` (Anthropic's current
+  default model) or `claude-sonnet-5-5` (about half the price).
+- `LLM_MAX_TOKENS`: about `16000`. Claude thinks before answering, and those tokens count
+  toward this limit; the default `2048` can cut answers off (the API log then says so).
+- `LLM_CONTEXT_WINDOW`: Claude accepts up to 1M tokens, but every token sent is billed. A
+  moderate value such as `32768` keeps the cost of each question bounded; long chats keep
+  their earlier part as a summary.
+- `LLM_TEMPERATURE` is not used: current Claude models set it themselves and reject it.
 
 ### Re-ranking
 

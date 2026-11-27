@@ -102,8 +102,9 @@ the document uses.
 
 ### Models
 
-The **LLM** tab sets the model that writes answers; the **Embeddings** tab sets the model
-that prepares documents and questions for search. Both are set by the server
+The **LLM** tab sets the model that writes answers (Ollama, OpenAI, vLLM or Anthropic's
+Claude); the **Embeddings** tab sets the model that prepares documents and questions for
+search. Both are set by the server
 administrator; workspace owners can override them for their workspace. Members can see the
 settings but not change them.
 

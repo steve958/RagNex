@@ -68,6 +68,11 @@ class Settings(BaseSettings):
 
     # OpenAI-compatible HTTP endpoints (embeddings + chat)
     openai_api_key: str | None = None
+    # Anthropic (Claude) chat models (services/llm_anthropic.py). Unset: the SDK's own
+    # credential lookup applies. Refusal fallback: on supported models, a request Claude
+    # declines is retried server-side on a fallback model.
+    anthropic_api_key: str | None = None
+    anthropic_refusal_fallback: bool = True
     openai_base_url: str = "https://api.openai.com/v1"
     ollama_base_url: str = "http://localhost:11434"
     vllm_base_url: str | None = None
@@ -79,7 +84,7 @@ class Settings(BaseSettings):
     tenant_model_base_urls: list[str] = []
 
     # LLM defaults (P4-1)
-    llm_provider: str = "ollama"  # ollama|openai|vllm (others can be added later)
+    llm_provider: str = "ollama"  # ollama|openai|vllm|anthropic
     llm_model: str = "llama3"
     llm_temperature: float = 0.2
     llm_max_tokens: int = 2048

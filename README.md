@@ -70,8 +70,8 @@ ollama pull llama3      # chat model (LLM_MODEL)
 ollama pull bge-m3      # embedding model (EMBEDDING_MODEL, 1024 dimensions)
 ```
 
-OpenAI-compatible endpoints (OpenAI, vLLM) work too; see `LLM_PROVIDER` and
-`EMBEDDING_PROVIDER` in `.env.example`.
+OpenAI-compatible endpoints (OpenAI, vLLM) work too, and answers can come from Anthropic's
+Claude models; see [docs/configuration.md](docs/configuration.md#models).
 
 ### Run it with Docker (production-style)
 

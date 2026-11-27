@@ -1,7 +1,7 @@
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { LlmSettingsSection } from './LlmSettingsSection';
 import { EmbeddingSettingsSection } from './EmbeddingSettingsSection';
@@ -44,6 +44,16 @@ beforeEach(() => {
 });
 
 describe('LlmSettingsSection', () => {
+  it('offers Claude for answers, and says Claude ignores the temperature', async () => {
+    renderWith(<LlmSettingsSection />, settings());
+    const provider = await screen.findByLabelText('Provider');
+    expect(within(provider).getByRole('option', { name: 'Anthropic (Claude)' })).toBeInTheDocument();
+    expect(screen.getByText('0 = focused, 2 = creative')).toBeInTheDocument();
+
+    fireEvent.change(provider, { target: { value: 'anthropic' } });
+    expect(screen.getByText('Not used by Claude models: they set it themselves.')).toBeInTheDocument();
+  });
+
   it('asks for the key again when the stored one can no longer be decrypted', async () => {
     const data = settings();
     data.llm = { ...data.llm, has_api_key: true, api_key_readable: false };
@@ -139,6 +149,12 @@ describe('LlmSettingsSection', () => {
 });
 
 describe('EmbeddingSettingsSection', () => {
+  it('does not offer Claude, which has no embedding API', async () => {
+    renderWith(<EmbeddingSettingsSection />, settings());
+    const provider = await screen.findByLabelText('Provider');
+    expect(within(provider).queryByRole('option', { name: 'Anthropic (Claude)' })).not.toBeInTheDocument();
+  });
+
   it('locks the model once documents are indexed but still allows a new API key', async () => {
     const locked = settings();
     locked.embedding.locked = true;
