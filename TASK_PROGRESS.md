@@ -302,7 +302,10 @@ Notes:
 - [x] Port Paper PDF parser behavior (heuristic)
 - [x] Port title/author extraction logic (heuristic)
 - [x] Port abstract detection (heuristic)
-- [ ] Port two-column layout handling (back on the list, 2026-11-27; requires layout/position-aware extraction)
+- [x] Port two-column layout handling (2026-11-27; `deepdoc/parser/pdf_parser.py`, tests in `backend/tests/test_pdf_columns.py`)
+  - pypdf reads text in stored order. LaTeX and Word store two-column pages column by column, so those already read correctly (checked on a real CVPR paper: all 12 pages). Generators that store pages row by row across the columns produced lines mixing both columns.
+  - Now each page is also laid out from word positions (pdfplumber): lines split at gaps wider than word spacing, a column gutter found near the middle, columns read left then right between full-width lines, headers and footers kept around them. The laid-out text replaces pypdf's only when pypdf's text switches between the columns line after line, because pypdf handles inline math and rotated margin text better. Two-column tables (columns that don't fill their width) are left row by row. Rotated text is excluded from the layout.
+  - Costs about 0.2 s per page extra (12-page paper: 0.5 s to 2.9 s).
 - [ ] Port `title_frequency` for section pivot detection (deferred)
 - [ ] Port figure/table extraction with vision enhancement (deferred)
 - [x] PDF-only format enforcement
