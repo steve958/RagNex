@@ -4,7 +4,11 @@ import datetime as dt
 import os
 import uuid
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
+from minio.error import S3Error
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -95,6 +99,60 @@ async def get_document_status(
         raise HTTPException(status_code=404, detail="Document not found")
 
     return _status_response(doc)
+
+
+def _attachment(filename: str) -> str:
+    """Content-Disposition for downloading `filename`: an ASCII fallback for old clients and
+    the exact name (RFC 6266/5987) for the rest."""
+    name = safe_filename(filename) or "document"
+    fallback = name.encode("ascii", "replace").decode("ascii").replace("?", "_").replace('"', "_")
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='')}"
+
+
+@router.get(
+    "/documents/{doc_id}/file",
+    response_class=StreamingResponse,
+    responses={200: {"content": {"application/octet-stream": {}}, "description": "The uploaded file"}},
+)
+async def download_document(
+    doc_id: uuid.UUID,
+    ctx=Depends(require_tenant_membership),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Download the original uploaded file."""
+    tenant_id, _user = ctx
+
+    res = await db.execute(
+        select(Document).where(
+            Document.id == doc_id,
+            Document.tenant_id == tenant_id,
+            Document.deleted_at.is_(None),
+        )
+    )
+    doc = res.scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not doc.storage_key:
+        raise HTTPException(status_code=404, detail="The original file isn't stored for this document")
+
+    try:
+        size, chunks = await StorageService().stream_file(tenant_id, doc.storage_key)
+    except S3Error as e:
+        if e.code in {"NoSuchKey", "NoSuchBucket", "NoSuchObject"}:
+            raise HTTPException(status_code=404, detail="The original file isn't stored for this document") from e
+        raise
+
+    headers = {
+        "Content-Disposition": _attachment(doc.filename),
+        # Uploads are untrusted. Always a download, never rendered: an HTML file opened in
+        # the browser would run its scripts with access to the signed-in user's session.
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox; default-src 'none'",
+        "Cache-Control": "private, no-store",
+    }
+    if size is not None:
+        headers["Content-Length"] = str(size)
+    return StreamingResponse(chunks, media_type="application/octet-stream", headers=headers)
 
 
 @router.get("/knowledgebases/{kb_id}/documents", response_model=DocumentListResponse)

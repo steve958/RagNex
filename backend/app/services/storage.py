@@ -3,8 +3,8 @@ from __future__ import annotations
 import mimetypes
 import os
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import timedelta
 import anyio
 from fastapi import UploadFile
 from minio import Minio
@@ -133,46 +133,22 @@ class StorageService:
         bucket = self.bucket_for_tenant(tenant_id)
         await anyio.to_thread.run_sync(lambda: self._client.remove_object(bucket, object_key))
 
-    async def generate_presigned_url(self, tenant_id: uuid.UUID, object_key: str, expires: int = 3600) -> str:
-        bucket = self.bucket_for_tenant(tenant_id)
-        td = timedelta(seconds=int(expires))
-        return await anyio.to_thread.run_sync(lambda: self._client.presigned_get_object(bucket, object_key, expires=td))
+    async def stream_file(
+        self, tenant_id: uuid.UUID, object_key: str, chunk_size: int = 256 * 1024
+    ) -> tuple[int | None, Iterator[bytes]]:
+        """Open a stored file for streaming: (size in bytes if known, chunks).
 
-    async def get_usage_bytes(self, tenant_id: uuid.UUID) -> int:
-        """Sum object sizes for a tenant.
-
-        Note: this is O(number_of_objects) and intended for admin/periodic usage reporting.
+        Raises minio.error.S3Error (code NoSuchKey) if the file isn't stored.
         """
-
         bucket = self.bucket_for_tenant(tenant_id)
+        resp = await anyio.to_thread.run_sync(lambda: self._client.get_object(bucket, object_key))
+        length = resp.headers.get("Content-Length")
 
-        def calc_sync() -> int:
-            if not self._client.bucket_exists(bucket):
-                return 0
-            total = 0
-            for obj in self._client.list_objects(bucket, recursive=True):
-                if obj.size:
-                    total += int(obj.size)
-            return total
+        def chunks() -> Iterator[bytes]:
+            try:
+                yield from resp.stream(chunk_size)
+            finally:
+                resp.close()
+                resp.release_conn()
 
-        return await anyio.to_thread.run_sync(calc_sync)
-
-    async def cleanup_orphaned_objects(self, tenant_id: uuid.UUID, in_use_object_keys: set[str]) -> int:
-        """Delete objects not present in `in_use_object_keys`.
-
-        Returns number of deleted objects.
-        """
-
-        bucket = self.bucket_for_tenant(tenant_id)
-
-        def cleanup_sync() -> int:
-            if not self._client.bucket_exists(bucket):
-                return 0
-            deleted = 0
-            for obj in self._client.list_objects(bucket, recursive=True):
-                if obj.object_name not in in_use_object_keys:
-                    self._client.remove_object(bucket, obj.object_name)
-                    deleted += 1
-            return deleted
-
-        return await anyio.to_thread.run_sync(cleanup_sync)
+        return (int(length) if length else None), chunks()

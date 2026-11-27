@@ -90,3 +90,49 @@ export const reprocessFailedDocuments = async (kbId: string): Promise<ReprocessF
  *  "done" means parsed and waiting for indexing. */
 export const isProcessing = (status: string): boolean =>
   ['pending', 'parsing', 'done', 'indexing'].includes(status.toLowerCase());
+
+/** The file name a Content-Disposition header asks for (RFC 6266), or null. */
+export const filenameFromDisposition = (header: string | undefined | null): string | null => {
+  if (!header) return null;
+  const extended = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (extended) {
+    try {
+      return decodeURIComponent(extended[1].trim());
+    } catch {
+      // Malformed encoding: fall through to the plain name.
+    }
+  }
+  const plain = /filename="([^"]*)"/i.exec(header);
+  return plain ? plain[1] : null;
+};
+
+/** Download the original uploaded file and save it in the browser. The request carries the
+ *  sign-in token, so a plain link wouldn't work; the file is fetched, then saved. */
+export const downloadDocument = async (docId: string, fallbackName = 'document'): Promise<void> => {
+  let res;
+  try {
+    res = await apiClient.get<Blob>(`/api/v1/documents/${docId}/file`, { responseType: 'blob' });
+  } catch (err: unknown) {
+    // With responseType 'blob', error bodies arrive as a Blob too: turn them back into JSON
+    // so the server's message ("isn't stored", "not found") can be shown.
+    const response = (err as { response?: { data?: unknown } }).response;
+    if (response?.data instanceof Blob) {
+      try {
+        response.data = JSON.parse(await response.data.text());
+      } catch {
+        // Not JSON: leave it; the caller shows a generic message.
+      }
+    }
+    throw err;
+  }
+  const name = filenameFromDisposition(res.headers['content-disposition']) ?? fallbackName;
+  const url = URL.createObjectURL(res.data);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Revoke later: some browsers start reading the blob only after click() returns.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+};
