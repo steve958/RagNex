@@ -186,6 +186,8 @@ class SearchRequest(BaseModel):
     rrf_k: int = Field(default=60, ge=1, le=10_000)
     bm25_weight: float = Field(default=1.0, ge=0.0)
     vector_weight: float = Field(default=1.0, ge=0.0)
+    # Re-score the best candidates with the server's re-ranker, if it has one.
+    rerank: bool = True
 
 
 class SearchHitResponse(BaseModel):
@@ -197,6 +199,9 @@ class SearchHitResponse(BaseModel):
 
 class SearchResponse(BaseModel):
     hits: list[SearchHitResponse]
+    # True when the hits were ordered (and scored) by the re-ranker; false when there is
+    # none, it was turned off, or it failed and the search order was used.
+    reranked: bool = False
 
 
 @router.post("/{kb_id}/search", response_model=SearchResponse)
@@ -232,9 +237,11 @@ async def search_knowledge_base(
         rrf_k=req.rrf_k,
         bm25_weight=req.bm25_weight,
         vector_weight=req.vector_weight,
+        rerank_results=req.rerank,
     )
 
     return SearchResponse(
+        reranked=any(h.source == "reranked" for h in hits),
         hits=[
             SearchHitResponse(
                 chunk_id=h.chunk_id,

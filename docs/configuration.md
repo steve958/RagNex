@@ -51,6 +51,25 @@ within the limits described under [Workspace model overrides](#workspace-model-o
 | `OPENAI_API_KEY` | empty | yes | Key for the `openai` provider. Never sent to vLLM servers. |
 | `VLLM_BASE_URL` | empty | yes | Endpoint for the `vllm` provider (OpenAI-compatible, e.g. `http://gpu-box:8000/v1`). Required when a provider is `vllm`. The server has no vLLM key setting: use a vLLM server that doesn't require one, or have the workspace owner set a key in Settings. |
 
+### Re-ranking
+
+Optional. A re-ranker is a second model that reads the question together with each of the
+best search candidates and re-scores them, which usually improves which passages an answer
+is built from. It runs as a separate service; see [deployment.md](deployment.md#re-ranking).
+
+| Variable | Default | Prod compose | Notes |
+|---|---|---|---|
+| `RERANK_PROVIDER` | `none` | yes | `none` (off), `tei` (Hugging Face Text Embeddings Inference, as in the bundled `reranker` service) or `cohere` (the common `/rerank` API served by vLLM, Infinity, Jina and Cohere). |
+| `RERANK_BASE_URL` | empty | yes | The service's address; RagNex calls `{RERANK_BASE_URL}/rerank`. For the bundled service: `http://reranker`. Re-ranking stays off while it's empty. |
+| `RERANK_MODEL` | `BAAI/bge-reranker-v2-m3` | yes | Model name sent to `cohere`-style services. TEI serves the one model it was started with (`RERANK_TEI_MODEL` for the bundled service). |
+| `RERANK_API_KEY` | empty | yes | Sent as a bearer token, for hosted services. |
+| `RERANK_CANDIDATES` | `15` | yes | How many search candidates are re-scored. More can find better passages but takes longer: with the bundled model on 8 CPU cores, about 3 s for 15 and 8 s for 30. |
+| `RERANK_TIMEOUT_S` | `30` | no | Seconds to wait for the re-ranker. |
+| `RERANK_TEI_MODEL` | `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` | compose only | Model the bundled `reranker` service loads: small, multilingual and practical on CPU. |
+
+If the re-ranker fails or times out, search uses its normal order and logs a warning, so
+chat keeps working.
+
 ### Workspace model overrides
 
 | Variable | Default | Prod compose | Notes |

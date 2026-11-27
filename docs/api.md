@@ -130,13 +130,16 @@ curl -s "$API/knowledgebases/8b1d.../search" "${AUTH[@]}" -H 'Content-Type: appl
 ```json
 {"hits": [
   {"chunk_id": "a7f0...", "doc_id": "c41e...", "content": "Article 12. New employees ...", "score": 0.032}
-]}
+], "reranked": false}
 ```
 
 Search combines keyword matching (BM25) and meaning (vector similarity), merged by rank.
+If the server has a re-ranker, the best candidates are then re-scored by it, and the
+response says `"reranked": true`; send `"rerank": false` to skip it for a request.
 `top_k` (1–100, default 10) sets how many hits come back. The scores rank hits within one
-response; don't compare them across queries. Optional tuning fields (`bm25_weight`,
-`vector_weight`, `rrf_k`, ...) are described in the reference.
+response; don't compare them across queries, or between re-ranked and other responses.
+Optional tuning fields (`bm25_weight`, `vector_weight`, `rrf_k`, ...) are described in the
+reference.
 
 ## Chat
 
@@ -167,6 +170,7 @@ curl -s "$API/chat/sessions/5e22.../messages" "${AUTH[@]}" -H 'Content-Type: app
 ```
 
 `citations` are the passages the answer was given; open them with `GET /chunks/{chunk_id}`.
+Chat uses the server's re-ranker when there is one.
 `top_k` (1–20, default 6) sets how many passages are searched for.
 
 ### Asking, with the answer streamed

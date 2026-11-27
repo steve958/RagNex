@@ -50,6 +50,12 @@ x-backend: &backend
     ACCESS_TOKEN_EXPIRES_MINUTES: ${ACCESS_TOKEN_EXPIRES_MINUTES:-30}
     REFRESH_TOKEN_EXPIRES_DAYS: ${REFRESH_TOKEN_EXPIRES_DAYS:-14}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    # Optional re-ranker (docs/deployment.md#re-ranking). none = off.
+    RERANK_PROVIDER: ${RERANK_PROVIDER:-none}
+    RERANK_BASE_URL: ${RERANK_BASE_URL:-}
+    RERANK_MODEL: ${RERANK_MODEL:-BAAI/bge-reranker-v2-m3}
+    RERANK_API_KEY: ${RERANK_API_KEY:-}
+    RERANK_CANDIDATES: ${RERANK_CANDIDATES:-15}
     REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-true}
     REGISTRATION_EMAIL_DOMAINS: ${REGISTRATION_EMAIL_DOMAINS:-[]}
     # Only the variables listed here reach the containers. To set another backend option
@@ -174,6 +180,25 @@ services:
       minio:
         condition: service_healthy
 
+  # Optional re-ranker: Hugging Face Text Embeddings Inference serving a cross-encoder.
+  # Started only with the "rerank" profile:
+  #   docker compose -f docker-compose.prod.yml --env-file .env.prod --profile rerank up -d
+  # and used with RERANK_PROVIDER=tei, RERANK_BASE_URL=http://reranker. It downloads the
+  # model from Hugging Face on first start. The default is a small multilingual model that
+  # is practical on CPU; larger ones (e.g. BAAI/bge-reranker-v2-m3) need a GPU image.
+  # --max-batch-tokens keeps start-up memory in check (the default ran out of memory).
+  reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4
+    profiles: ["rerank"]
+    restart: unless-stopped
+    command:
+      - --model-id
+      - ${RERANK_TEI_MODEL:-cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
+      - --max-batch-tokens
+      - "4096"
+    volumes:
+      - rerankerdata:/data
+
   frontend:
     image: ${RAGNEX_IMAGE_PREFIX:-}ragnex-frontend:${RAGNEX_VERSION:-latest}
     build:
@@ -199,6 +224,7 @@ services:
       retries: 5
 
 volumes:
+  rerankerdata:
   pgdata:
   redisdata:
   opensearchdata:

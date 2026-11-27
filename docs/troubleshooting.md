@@ -58,6 +58,12 @@ of RagNex needs a limit at least as large, or it refuses the upload first.
 - **(admin)** **Is `LLM_CONTEXT_WINDOW` right?** If it's set smaller than the model's real
   context size, fewer passages fit in each question. If larger, long chats fail.
 
+### Answers got worse, or the API log says "Re-ranking failed"
+
+**(admin)** The re-ranker can't be reached or returns errors, so search is using its normal
+order. Check the service (`docker compose --profile rerank ps reranker` and its log) and
+`RERANK_BASE_URL`. On its first start the bundled re-ranker is still downloading its model.
+
 ### The answer appears all at once instead of word by word
 
 **(admin)** A reverse proxy in front of RagNex is buffering responses. With nginx, set

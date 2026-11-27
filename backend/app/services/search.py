@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -16,6 +17,9 @@ from backend.app.services.cache import CacheService
 from backend.app.services.embeddings import EmbeddingConfig, create_embedding_service
 from backend.app.services.model_settings import effective_embedding_config
 from backend.app.services.opensearch import OpenSearchService
+from backend.app.services.rerank import RerankError, rerank, rerank_enabled
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -26,7 +30,7 @@ class SearchHit:
     tenant_id: str
     content: str
     score: float
-    source: str  # bm25|vector|hybrid
+    source: str  # bm25|vector|hybrid|reranked (score is then the re-ranker's)
 
 
 class SearchService:
@@ -84,18 +88,23 @@ class SearchService:
         rrf_k: int = 60,
         bm25_weight: float = 1.0,
         vector_weight: float = 1.0,
+        rerank_results: bool = True,
     ) -> list[SearchHit]:
         """Hybrid search across one or more knowledge bases of a tenant.
 
         All of a tenant's chunks live in one index, so several KBs are searched in a single
-        query and ranked together (not per KB and then merged).
+        query and ranked together (not per KB and then merged). If a re-ranker is configured
+        (and rerank_results), the best fused candidates are re-scored by it; hits then have
+        source "reranked". If it fails, the fused order is used.
         """
         if not kb_ids:
             raise ValueError("kb_ids must not be empty")
         top_k = max(1, min(100, int(top_k)))
+        use_reranker = rerank_results and rerank_enabled()
+        pool = max(top_k, settings.rerank_candidates) if use_reranker else top_k
         # Fetch extra candidates: hits from deleted documents are dropped after fusion.
-        bm25_k = max(top_k, int(bm25_k or top_k * 2))
-        vector_k = max(top_k, int(vector_k or top_k * 2))
+        bm25_k = max(pool, int(bm25_k or pool * 2))
+        vector_k = max(pool, int(vector_k or pool * 2))
 
         index = self._os.ensure_index(tenant_id)
         client = self._os._client()  # noqa: SLF001
@@ -174,7 +183,23 @@ class SearchService:
 
         fused.sort(key=lambda x: x.score, reverse=True)
         fused = await self._drop_deleted(tenant_id, fused)
+        if use_reranker:
+            return await self._rerank(query, fused[:pool], top_k)
         return fused[:top_k]
+
+    @staticmethod
+    async def _rerank(query: str, candidates: list[SearchHit], top_k: int) -> list[SearchHit]:
+        try:
+            ranked = await rerank(query, [h.content for h in candidates])
+        except RerankError as e:
+            # Better a slightly worse order than no answer: fall back to the fused ranking.
+            logger.warning("Re-ranking failed, using the search order instead: %s", e)
+            return candidates[:top_k]
+        out = []
+        for r in ranked[:top_k]:
+            h = candidates[r.index]
+            out.append(SearchHit(h.chunk_id, h.doc_id, h.kb_id, h.tenant_id, h.content, r.score, "reranked"))
+        return out
 
     async def _drop_deleted(self, tenant_id: uuid.UUID, hits: list[SearchHit]) -> list[SearchHit]:
         """Remove hits whose document or knowledge base is deleted (or no longer exists).

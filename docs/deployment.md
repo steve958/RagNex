@@ -194,6 +194,41 @@ Postgres first: migrations can't always be undone.
 (`openssl rand -base64 32`). Compose refuses to start without it, and the upgrade encrypts
 the workspace model API keys already stored.
 
+## Re-ranking
+
+Optional, and off by default. A re-ranker re-scores the best search candidates for each
+question, which usually improves answers, especially for questions worded differently from
+the documents. It costs one extra model call per question.
+
+The compose file includes one, started only on request: Hugging Face Text Embeddings
+Inference on CPU, with `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`, a small multilingual
+model (it matches questions and passages across languages too).
+
+```bash
+# .env.prod
+RERANK_PROVIDER=tei
+RERANK_BASE_URL=http://reranker
+
+docker compose -f docker-compose.prod.yml --env-file .env.prod --profile rerank up -d
+```
+
+On first start it downloads the model (about 500 MB). Measured on 8 CPU cores: about 2.5 GB
+of memory, and about 3 seconds per question to re-score the default 15 candidates (8 seconds
+for 30), which is added before the answer starts. Keep `--profile rerank` on later `up` and
+`pull` commands, or the service is left out.
+
+Larger re-rankers are more accurate but need a GPU: `BAAI/bge-reranker-v2-m3` took over a
+minute per question on the same CPU. With a GPU, run TEI's GPU image (or vLLM) with that
+model and point `RERANK_BASE_URL` at it.
+
+To use another server instead (vLLM, Infinity, Jina, Cohere), set `RERANK_PROVIDER=cohere`,
+`RERANK_BASE_URL` to its API base (for example `http://gpu-box:8000/v1`), `RERANK_MODEL`,
+and `RERANK_API_KEY` if it needs one. See [configuration.md](configuration.md#re-ranking).
+
+To check it's used: a search through the API returns `"reranked": true`. If the
+re-ranker can't be reached, search falls back to its normal order and the API log says
+`Re-ranking failed`.
+
 ## Prebuilt images
 
 Every push to `master` that passes the tests publishes both images to the GitHub Container

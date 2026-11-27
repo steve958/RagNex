@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -85,6 +86,18 @@ class Settings(BaseSettings):
     # Total tokens the model accepts (prompt + answer). Chat prompts are trimmed to fit,
     # keeping llm_max_tokens free for the answer. Set this to the model's real context size.
     llm_context_window: int = 8192
+
+    # Re-ranking (services/rerank.py): an optional cross-encoder service that re-scores the
+    # top search candidates. "none" = off; "cohere" = the common /rerank API (vLLM,
+    # Infinity, Jina, Cohere); "tei" = Hugging Face Text Embeddings Inference.
+    rerank_provider: Literal["none", "cohere", "tei"] = "none"
+    rerank_base_url: str = ""
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"  # sent to "cohere"-style servers
+    rerank_api_key: str | None = None
+    # How many search candidates are re-scored; the best top_k of them are kept. Cost grows
+    # with it: on 8 CPU cores the bundled model takes about 3 s for 15, 8 s for 30.
+    rerank_candidates: int = 15
+    rerank_timeout_s: float = 30.0
 
     # S3-compatible storage (MinIO)
     s3_endpoint_url: str = "http://localhost:9000"
