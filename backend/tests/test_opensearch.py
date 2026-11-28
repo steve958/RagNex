@@ -153,3 +153,30 @@ def test_ensure_chunks_policy_applies_a_changed_rollover_size(ism, monkeypatch):
     monkeypatch.setattr("backend.app.services.opensearch.settings.opensearch_chunks_rollover_min_size", "50gb")
     OpenSearchService().ensure_chunks_policy()
     assert fake.calls[1][3]["policy"]["states"][0]["actions"] == [{"rollover": {"min_size": "50gb"}}]
+
+
+def test_client_is_reused_within_a_process(monkeypatch):
+    """A new client per call opened new connections for every search; one client per process
+    keeps them open. A forked process (Celery workers) gets its own, not its parent's sockets."""
+    monkeypatch.setattr(OpenSearchService, "_clients", {})
+    first = OpenSearchService()._client()
+    assert OpenSearchService()._client() is first
+    monkeypatch.setattr("backend.app.services.opensearch.os.getpid", lambda: -1)
+    assert OpenSearchService()._client() is not first
+
+
+def test_index_template_is_written_once_per_process(monkeypatch):
+    puts = []
+
+    class FakeIndices:
+        def put_index_template(self, name, body):
+            puts.append(name)
+
+    class FakeClient:
+        indices = FakeIndices()
+
+    monkeypatch.setattr(OpenSearchService, "_client", lambda self: FakeClient())
+    monkeypatch.setattr(OpenSearchService, "_template_verified", False)
+    OpenSearchService().ensure_template()
+    OpenSearchService().ensure_template()
+    assert puts == [OpenSearchService.TEMPLATE_NAME]

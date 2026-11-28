@@ -10,6 +10,7 @@ import httpx
 from pydantic import BaseModel
 
 from backend.app.core.config import settings
+from backend.app.core.http import tls_context
 from backend.app.services.cache import CacheService
 
 
@@ -119,7 +120,7 @@ class OllamaEmbedding(EmbeddingService):
         url = f"{base_url}/api/embeddings"
 
         vectors: list[list[float]] = []
-        async with httpx.AsyncClient(timeout=self.cfg.timeout_s) as client:
+        async with httpx.AsyncClient(timeout=self.cfg.timeout_s, verify=tls_context()) as client:
             for t in texts:
                 await self._rl.wait()
                 r = await client.post(url, json={"model": self.cfg.model, "prompt": t})
@@ -149,7 +150,7 @@ class OpenAICompatibleEmbedding(EmbeddingService):
         batch = max(1, int(self.cfg.batch_size))
         vectors: list[list[float]] = []
 
-        async with httpx.AsyncClient(timeout=self.cfg.timeout_s) as client:
+        async with httpx.AsyncClient(timeout=self.cfg.timeout_s, verify=tls_context()) as client:
             for i in range(0, len(texts), batch):
                 await self._rl.wait()
                 chunk = texts[i : i + batch]
