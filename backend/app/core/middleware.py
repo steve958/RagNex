@@ -3,52 +3,61 @@ from __future__ import annotations
 import time
 import uuid
 
-from fastapi import Request
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+import structlog
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from backend.app.core.logging import logger
 
+# The middlewares here are plain ASGI rather than Starlette's BaseHTTPMiddleware. That one
+# returns from call_next as soon as the response headers are ready, so a streamed answer's
+# body ran after the request's log line was written and its request ID unbound; it also
+# cost about a tenth of the API's CPU under load (docs/performance.md).
 
-class RequestIdMiddleware(BaseHTTPMiddleware):
-    """Attach an X-Request-ID to every request and response."""
 
-    def __init__(self, app, header_name: str = "X-Request-ID"):
-        super().__init__(app)
+class RequestContextMiddleware:
+    """Give every request an ID and log it when it's finished.
+
+    The ID comes from the X-Request-ID request header, or is generated. It is returned in the
+    response header and bound to every log line written while the request runs, including
+    the "http_request" line itself and anything logged while a response streams.
+    """
+
+    def __init__(self, app: ASGIApp, header_name: str = "X-Request-ID"):
+        self.app = app
         self.header_name = header_name
 
-    async def dispatch(self, request: Request, call_next):
-        req_id = request.headers.get(self.header_name) or uuid.uuid4().hex
-        request.state.request_id = req_id
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        # Bind request_id into structlog contextvars so all logs include it.
-        import structlog
+        req_id = Headers(scope=scope).get(self.header_name) or uuid.uuid4().hex
+        scope.setdefault("state", {})["request_id"] = req_id
+        status_code: int | None = None
 
+        async def send_with_id(message: Message) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                MutableHeaders(scope=message)[self.header_name] = req_id
+            await send(message)
+
+        start = time.perf_counter()
         structlog.contextvars.bind_contextvars(request_id=req_id)
         try:
-            response: Response = await call_next(request)
+            await self.app(scope, receive, send_with_id)
+        except BaseException:
+            # Unhandled: the outermost error handler answers 500 after this.
+            status_code = status_code or 500
+            raise
         finally:
-            structlog.contextvars.clear_contextvars()
-
-        response.headers[self.header_name] = req_id
-        return response
-
-
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """Log HTTP requests in a structured way."""
-
-    async def dispatch(self, request: Request, call_next):
-        start = time.perf_counter()
-        try:
-            response: Response = await call_next(request)
-            return response
-        finally:
-            elapsed_ms = (time.perf_counter() - start) * 1000.0
-            status_code = getattr(locals().get("response", None), "status_code", None)
             logger.info(
                 "http_request",
-                method=request.method,
-                path=str(request.url.path),
+                method=scope["method"],
+                path=scope["path"],
                 status_code=status_code,
-                elapsed_ms=round(elapsed_ms, 3),
+                # Until the last byte of the response, streamed answers included.
+                elapsed_ms=round((time.perf_counter() - start) * 1000.0, 3),
             )
+            structlog.contextvars.clear_contextvars()
