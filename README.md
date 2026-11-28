@@ -49,7 +49,8 @@ The following are explicitly out of scope for this project:
 - [User guide](docs/user-guide.md): getting started, knowledge bases and templates, documents, chat, settings
 - [API guide](docs/api.md): signing in, uploading, search and streaming chat; full reference at `/api/docs`
 - [Troubleshooting and FAQ](docs/troubleshooting.md)
-- [Deployment](docs/deployment.md) and [configuration reference](docs/configuration.md)
+- [Deployment](docs/deployment.md), [configuration reference](docs/configuration.md) and
+  [performance](docs/performance.md) (what limits speed, measurements, load testing)
 - For developers: [architecture](docs/architecture.md), [development](docs/development.md)
   (setup, tests, debugging, releases), [extending RagNex](docs/extending.md), and
   [contributing](CONTRIBUTING.md)

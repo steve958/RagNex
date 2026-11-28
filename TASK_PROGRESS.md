@@ -619,10 +619,25 @@ Notes:
 - 2026-11-26: Fixed Celery workers registering no tasks: `autodiscover_tasks` looked for a non-existent `backend.app.tasks.tasks` module. Task modules are now listed in `celery_app.conf.include`.
 
 ### P6-3: Performance Testing
-- [ ] Create load test scripts (Locust/k6)
-- [ ] Establish performance baselines
-- [ ] Identify and fix bottlenecks
-- [ ] Document performance characteristics
+- [x] Create load test scripts (Locust/k6) (2026-11-28: `loadtest/locustfile.py`, Locust; `loadtest/fake_llm.py` stand-in chat model)
+- [x] Establish performance baselines
+- [x] Identify and fix bottlenecks
+- [x] Document performance characteristics (`docs/performance.md`)
+
+Notes:
+- 2026-11-28: Measured against `docker-compose.prod.yml` on a laptop (i7-1165G7, Docker Desktop), Ollama bge-m3 on CPU, fake chat model. Searches with a cached question: 22 → 58 a second, median 760 → 320 ms (20 users, no pauses). At a normal mixed load (30 users, ~13 requests/s), search median 170 → 93 ms, 95th percentile 720 → 260 ms.
+- Fixed, found with py-spy under load:
+  - search opened a new database engine (and connection) per request to read the workspace's embedding settings;
+  - search rewrote the OpenSearch index template and checked the index on every request, with a new client (and connections) per call;
+  - the synchronous OpenSearch queries ran on the API's event loop, holding up other requests;
+  - search results carried each chunk's vector (455 KB vs 40 KB per response);
+  - `BaseHTTPMiddleware` overhead (about 10% of API CPU), now plain ASGI;
+  - the CA bundle was reloaded for every embedding/re-ranker HTTP client (about 7%).
+- Also fixed: the `http_request` log line had no request ID (it was written after the ID was unbound), and its time stopped at the headers for streamed answers.
+- `EMBEDDING_RPS` is per document being indexed, not per worker process as documented; corrected. With Ollama (one chunk per request) the default caps indexing at 5 chunks/s per document, which a GPU can exceed.
+- The models set the pace: new questions wait for the embedding model (one at a time on CPU), chat for the chat model (`gemma2:2b` on CPU: about a minute per answer, one at a time; a third queued question hit the 120 s read timeout), indexing for the embedding model (about 1.5 s per chunk on CPU).
+- Not measured: search on a large index.
+- Found, not fixed (not performance): deleting a workspace deletes its database rows but leaves its OpenSearch index and MinIO bucket behind. The load test deletes its knowledge base first, which purges both.
 
 ### P6-4: Security Testing
 - [x] Run SAST tools (Bandit, Semgrep) and dependency audits (pip-audit, npm audit)

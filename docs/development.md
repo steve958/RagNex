@@ -58,6 +58,8 @@ cd frontend && npm run build              # type check + production build
   `docker compose -f docker-compose.dev.yml down -v` if it bothers you.
 - **Coverage**: `python -m pytest --cov` (backend), `npm test -- --run --coverage`
   (frontend).
+- **Load testing**: `loadtest/locustfile.py`; how to run it and the results so far are in
+  [performance.md](performance.md#running-the-load-test).
 - **Docs are tested too**: `tests/test_docs.py` checks that every setting appears in
   `docs/configuration.md` and that links between the docs resolve;
   `tests/test_api_guide.py` runs the examples in `docs/api.md`.
