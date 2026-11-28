@@ -37,12 +37,9 @@ async def test_search_service_hybrid_rrf(monkeypatch):
 
     # Fake OpenSearch.
     class _FakeClient:
-        def __init__(self):
-            self.calls = 0
-
+        # The two queries run side by side, so tell them apart by kind, not by order.
         def search(self, index=None, body=None):
-            self.calls += 1
-            if self.calls == 1:
+            if "bool" in body["query"]:
                 # BM25 ranking: A, B
                 return {
                     "hits": {
@@ -62,7 +59,6 @@ async def test_search_service_hybrid_rrf(monkeypatch):
                 }
             }
 
-    monkeypatch.setattr("backend.app.services.search.OpenSearchService.ensure_index", lambda self, tid: "chunks_test")
     monkeypatch.setattr("backend.app.services.search.OpenSearchService._client", lambda self: _FakeClient())
     # Fake doc ids ("d1") are not in Postgres; deletion filtering is tested separately.
     async def keep_all(self, tenant_id, hits):
@@ -155,14 +151,15 @@ async def test_search_filters_on_every_requested_knowledge_base(monkeypatch):
     monkeypatch.setattr("backend.app.services.search.SearchService._load_embedding_config", fake_load_cfg)
     monkeypatch.setattr("backend.app.services.search.create_embedding_service", lambda cfg, cache=None: _Embedder())
     monkeypatch.setattr("backend.app.services.search.settings.embedding_dimension", 3)
-    monkeypatch.setattr("backend.app.services.search.OpenSearchService.ensure_index", lambda self, tid: "chunks_test")
     monkeypatch.setattr("backend.app.services.search.OpenSearchService._client", lambda self: _Client())
 
     await SearchService().search(tenant_id=tenant_id, kb_ids=kb_ids, query="q", top_k=3)
 
     expected = {"terms": {"kb_id": sorted(str(k) for k in kb_ids)}}
-    bm25_filters = bodies[0]["query"]["bool"]["filter"]
-    knn_filters = bodies[1]["query"]["knn"]["content_vector"]["filter"]["bool"]["filter"]
+    (bm25,) = [b for b in bodies if "bool" in b["query"]]
+    (knn,) = [b for b in bodies if "knn" in b["query"]]
+    bm25_filters = bm25["query"]["bool"]["filter"]
+    knn_filters = knn["query"]["knn"]["content_vector"]["filter"]["bool"]["filter"]
     for filters in (bm25_filters, knn_filters):
         assert expected in filters
         assert {"term": {"tenant_id": str(tenant_id)}} in filters
@@ -172,3 +169,117 @@ async def test_search_filters_on_every_requested_knowledge_base(monkeypatch):
 async def test_search_requires_at_least_one_knowledge_base():
     with pytest.raises(ValueError, match="kb_ids"):
         await SearchService().search(tenant_id=uuid.uuid4(), kb_ids=[], query="q")
+
+
+def _search_with_client(monkeypatch, client):
+    async def fake_load_cfg(self, tid):
+        from backend.app.services.embeddings import EmbeddingConfig
+
+        return EmbeddingConfig()
+
+    class _Embedder:
+        async def embed_cached(self, texts):
+            from backend.app.services.embeddings import EmbeddingResult
+
+            return EmbeddingResult(vectors=[[0.1, 0.2, 0.3]], dimension=3)
+
+    monkeypatch.setattr("backend.app.services.search.SearchService._load_embedding_config", fake_load_cfg)
+    monkeypatch.setattr("backend.app.services.search.create_embedding_service", lambda cfg, cache=None: _Embedder())
+    monkeypatch.setattr("backend.app.services.search.settings.embedding_dimension", 3)
+    monkeypatch.setattr("backend.app.services.search.OpenSearchService._client", lambda self: client)
+    return SearchService().search(tenant_id=uuid.uuid4(), kb_ids=[uuid.uuid4()], query="q", top_k=3)
+
+
+@pytest.mark.asyncio
+async def test_search_only_reads(monkeypatch):
+    """Search used to write the index template and check the index on every request, a
+    cluster-state write each time. It only queries."""
+    calls = []
+
+    class _Client:
+        @property
+        def indices(self):
+            raise AssertionError("search must not manage indices")
+
+        @property
+        def transport(self):
+            raise AssertionError("search must not manage policies")
+
+        def search(self, index=None, body=None):
+            calls.append(index)
+            return {"hits": {"hits": []}}
+
+    assert await _search_with_client(monkeypatch, _Client()) == []
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_search_does_not_fetch_stored_vectors(monkeypatch):
+    """Returning each hit's vector made responses about ten times larger (455 KB instead of
+    40 KB for 20 hits), all parsed and thrown away."""
+    bodies = []
+
+    class _Client:
+        def search(self, index=None, body=None):
+            bodies.append(body)
+            return {"hits": {"hits": []}}
+
+    await _search_with_client(monkeypatch, _Client())
+    for body in bodies:
+        assert "content_vector" not in body["_source"]
+        assert "content" in body["_source"]
+
+
+@pytest.mark.asyncio
+async def test_search_runs_its_queries_off_the_event_loop(monkeypatch):
+    """The OpenSearch client blocks; run on the event loop, one slow query held up every
+    other request in that API process."""
+    import threading
+
+    main = threading.get_ident()
+    threads = []
+
+    class _Client:
+        def search(self, index=None, body=None):
+            threads.append(threading.get_ident())
+            return {"hits": {"hits": []}}
+
+    await _search_with_client(monkeypatch, _Client())
+    assert len(threads) == 2 and main not in threads
+
+
+@pytest.mark.asyncio
+async def test_search_without_an_index_finds_nothing(monkeypatch):
+    """A workspace whose index doesn't exist yet has nothing indexed: no hits, not an error."""
+    from opensearchpy.exceptions import NotFoundError
+
+    class _Client:
+        def search(self, index=None, body=None):
+            raise NotFoundError(404, "index_not_found_exception", {})
+
+    assert await _search_with_client(monkeypatch, _Client()) == []
+
+
+@pytest.mark.asyncio
+async def test_search_reuses_database_connections():
+    """Search read the workspace's embedding settings through a new engine each time: a new
+    database connection per search, a large part of a search's cost under load."""
+    from sqlalchemy import event
+    from sqlalchemy.pool import Pool
+
+    svc = SearchService()
+    tenant_id = uuid.uuid4()
+    await svc._load_embedding_config(tenant_id)  # warm up the shared pool
+
+    opened = []
+
+    def listener(*_args):
+        opened.append(1)
+
+    event.listen(Pool, "connect", listener)
+    try:
+        for _ in range(3):
+            await svc._load_embedding_config(tenant_id)
+    finally:
+        event.remove(Pool, "connect", listener)
+    assert opened == []

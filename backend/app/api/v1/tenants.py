@@ -25,6 +25,7 @@ from backend.app.services.model_settings import (
     merge_llm_update,
     settings_view,
 )
+from backend.app.tasks.purge import enqueue_workspace_purge
 
 logger = logging.getLogger(__name__)
 
@@ -143,9 +144,11 @@ async def delete_tenant(
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
-    # Hard delete for now (schema supports soft-delete; can switch later)
+    # Hard delete: everything the workspace owns in the database cascades. Its search
+    # indexes and file bucket are removed in the background.
     await db.execute(delete(Tenant).where(Tenant.id == tenant_id))
     await db.commit()
+    enqueue_workspace_purge(tenant_id)
     return {"ok": True}
 
 

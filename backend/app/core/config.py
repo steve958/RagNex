@@ -26,10 +26,6 @@ class Settings(BaseSettings):
     opensearch_chunks_policy_id: str = "ragnex-chunks-policy"
     opensearch_chunks_rollover_min_size: str = "30gb"
 
-    # Celery
-    celery_task_always_eager: bool = False
-    celery_task_eager_propagates: bool = True
-
     # Auth. JWT_SECRET signs every login token: anyone who knows or guesses it can log in as
     # any user. It has no default and must be at least 32 bytes (checked below).
     jwt_secret: str = ""

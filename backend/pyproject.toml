@@ -51,6 +51,11 @@ dev = [
   "pytest-cov>=6.0.0",
 ]
 
+# Load testing (loadtest/; see docs/performance.md). Not needed to run or test RagNex.
+loadtest = [
+  "locust>=2.32.0",
+]
+
 # DeepDoc parsing stack (text extraction + basic file parsers)
 deepdoc = [
   "pypdf>=4.0.0",

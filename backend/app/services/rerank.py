@@ -20,6 +20,7 @@ from dataclasses import dataclass
 import httpx
 
 from backend.app.core.config import settings
+from backend.app.core.http import tls_context
 
 
 class RerankError(RuntimeError):
@@ -71,7 +72,7 @@ async def rerank(query: str, documents: Sequence[str], *, client: httpx.AsyncCli
     headers = {"Authorization": f"Bearer {settings.rerank_api_key}"} if settings.rerank_api_key else {}
 
     owned = client is None
-    client = client or httpx.AsyncClient(timeout=settings.rerank_timeout_s)
+    client = client or httpx.AsyncClient(timeout=settings.rerank_timeout_s, verify=tls_context())
     try:
         resp = await client.post(url, json=body, headers=headers)
         resp.raise_for_status()

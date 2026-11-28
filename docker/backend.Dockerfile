@@ -69,7 +69,7 @@ import backend.app.main; \
 from backend.app.core.celery_app import celery_app; \
 celery_app.loader.import_default_modules(); \
 tasks = sorted(t for t in celery_app.tasks if t.startswith('backend.')); \
-assert len(tasks) == 4, tasks; \
+assert len(tasks) == 5, tasks; \
 from deepdoc import parser as p; \
 missing = [n for n in ('PdfParser', 'DocxParser', 'ExcelParser', 'PptParser', 'HtmlParser', 'JsonParser', 'MarkdownParser', 'TxtParser') if getattr(p, n, None) is None]; \
 assert not missing, f'document parsers unavailable: {missing}'; \

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
+import threading
 import uuid
+from typing import ClassVar
 
 from opensearchpy import OpenSearch
 from opensearchpy.exceptions import ConflictError, NotFoundError
@@ -12,14 +15,28 @@ class OpenSearchService:
     TEMPLATE_NAME = "ragnex-chunks-template"
     CHUNKS_SCHEMA_VERSION = 1
 
+    # One client per process: it keeps a pool of open connections, so reusing it saves a
+    # connection setup per request (docs/performance.md). Keyed by process ID because a client created
+    # before Celery forks its workers must not share its sockets with them.
+    _clients: ClassVar[dict[tuple, OpenSearch]] = {}
+    _clients_lock = threading.Lock()
+
     def _client(self) -> OpenSearch:
-        kwargs: dict = {
-            "hosts": [settings.opensearch_url],
-            "verify_certs": bool(settings.opensearch_verify_certs),
-        }
-        if settings.opensearch_username and settings.opensearch_password:
-            kwargs["http_auth"] = (settings.opensearch_username, settings.opensearch_password)
-        return OpenSearch(**kwargs)
+        key = (os.getpid(), settings.opensearch_url, settings.opensearch_username,
+               settings.opensearch_password, bool(settings.opensearch_verify_certs))
+        with OpenSearchService._clients_lock:
+            client = OpenSearchService._clients.get(key)
+            if client is None:
+                kwargs: dict = {
+                    "hosts": [settings.opensearch_url],
+                    "verify_certs": bool(settings.opensearch_verify_certs),
+                    # Search runs its queries in threads; room for that many at once.
+                    "maxsize": 32,
+                }
+                if settings.opensearch_username and settings.opensearch_password:
+                    kwargs["http_auth"] = (settings.opensearch_username, settings.opensearch_password)
+                client = OpenSearchService._clients[key] = OpenSearch(**kwargs)
+            return client
 
     @staticmethod
     def get_index_name(tenant_id: uuid.UUID) -> str:
@@ -36,6 +53,9 @@ class OpenSearchService:
     # Set once the policy on the cluster is known to be current, so indexing and search don't
     # check it on every call. Per process; a restart re-checks.
     _policy_verified: bool = False
+    # Likewise for the index template: writing it changes the cluster state, which is slow
+    # and was done on every search.
+    _template_verified: bool = False
 
     @staticmethod
     def _policy_description() -> str:
@@ -105,8 +125,10 @@ class OpenSearchService:
         OpenSearchService._policy_verified = True
 
     def ensure_template(self) -> None:
-        """Ensure an index template exists for chunk indices."""
+        """Ensure an index template exists for chunk indices (once per process)."""
 
+        if OpenSearchService._template_verified:
+            return
         client = self._client()
 
         policy_id = settings.opensearch_chunks_policy_id
@@ -142,6 +164,7 @@ class OpenSearchService:
 
         # Composable templates (OpenSearch 2.x compatible)
         client.indices.put_index_template(name=self.TEMPLATE_NAME, body=body)
+        OpenSearchService._template_verified = True
 
     def ensure_index(self, tenant_id: uuid.UUID) -> str:
         """Ensure a tenant write alias exists for chunk indexing.

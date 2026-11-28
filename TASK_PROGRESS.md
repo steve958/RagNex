@@ -170,6 +170,7 @@ Notes:
 - [x] Create tenant context middleware
 - [x] Add tenant filtering to all queries
 - [x] Test cross-tenant data isolation
+- [x] Deleting a workspace purges its search indexes and file bucket (2026-11-28; it used to delete only the database rows). A `purge_workspace` task (`tasks/purge.py`, `services/workspace_purge.py`) runs after the delete, refuses a workspace that still exists, retries, and is idempotent. `deletion_backfill` now also finds indexes and buckets whose workspace no longer exists (earlier deletions, or a document task still running at the delete) and purges them. Tests: `tests/test_workspace_purge.py`.
 
 Notes:
 - 2025-12-18: Added tenant CRUD + membership endpoints (`backend/app/api/v1/tenants.py`).
@@ -619,10 +620,25 @@ Notes:
 - 2026-11-26: Fixed Celery workers registering no tasks: `autodiscover_tasks` looked for a non-existent `backend.app.tasks.tasks` module. Task modules are now listed in `celery_app.conf.include`.
 
 ### P6-3: Performance Testing
-- [ ] Create load test scripts (Locust/k6)
-- [ ] Establish performance baselines
-- [ ] Identify and fix bottlenecks
-- [ ] Document performance characteristics
+- [x] Create load test scripts (Locust/k6) (2026-11-28: `loadtest/locustfile.py`, Locust; `loadtest/fake_llm.py` stand-in chat model)
+- [x] Establish performance baselines
+- [x] Identify and fix bottlenecks
+- [x] Document performance characteristics (`docs/performance.md`)
+
+Notes:
+- 2026-11-28: Measured against `docker-compose.prod.yml` on a laptop (i7-1165G7, Docker Desktop), Ollama bge-m3 on CPU, fake chat model. Searches with a cached question: 22 → 58 a second, median 760 → 320 ms (20 users, no pauses). At a normal mixed load (30 users, ~13 requests/s), search median 170 → 93 ms, 95th percentile 720 → 260 ms.
+- Fixed, found with py-spy under load:
+  - search opened a new database engine (and connection) per request to read the workspace's embedding settings;
+  - search rewrote the OpenSearch index template and checked the index on every request, with a new client (and connections) per call;
+  - the synchronous OpenSearch queries ran on the API's event loop, holding up other requests;
+  - search results carried each chunk's vector (455 KB vs 40 KB per response);
+  - `BaseHTTPMiddleware` overhead (about 10% of API CPU), now plain ASGI;
+  - the CA bundle was reloaded for every embedding/re-ranker HTTP client (about 7%).
+- Also fixed: the `http_request` log line had no request ID (it was written after the ID was unbound), and its time stopped at the headers for streamed answers.
+- `EMBEDDING_RPS` is per document being indexed, not per worker process as documented; corrected. With Ollama (one chunk per request) the default caps indexing at 5 chunks/s per document, which a GPU can exceed.
+- The models set the pace: new questions wait for the embedding model (one at a time on CPU), chat for the chat model (`gemma2:2b` on CPU: about a minute per answer, one at a time; a third queued question hit the 120 s read timeout), indexing for the embedding model (about 1.5 s per chunk on CPU).
+- Not measured: search on a large index.
+- Found (not performance): deleting a workspace deleted its database rows but left its OpenSearch index and MinIO bucket behind. Fixed 2026-11-28: see P1-3.
 
 ### P6-4: Security Testing
 - [x] Run SAST tools (Bandit, Semgrep) and dependency audits (pip-audit, npm audit)
@@ -703,8 +719,11 @@ Notes:
 - 2026-11-27: `backend/tests/test_api_guide.py` runs the API guide's examples against the real API, so the guide fails a test when it drifts from the code. Fixed on the way: the web app's upload helper sent the PDF page range as form fields, which the API ignores (it reads query parameters); unused so far. Gap noted in the guide then: the web app always worked in the user's first workspace, with no switcher or members screen. Closed 2026-11-27: workspace menu in the header and a Workspace settings tab (members listed owners first; owners add people by email, change roles, remove; switch and create workspaces). API: `GET /tenants` includes your role, `GET /tenants/{id}/members`, and `POST /tenants/{id}/members` accepts `email`.
 
 ### P7-5: Developer Documentation
-- [ ] Document architecture overview
-- [ ] Create contribution guide
-- [ ] Document extending the system
-- [ ] Create debugging guide
-- [ ] Document release process
+- [x] Document architecture overview (`docs/architecture.md`)
+- [x] Create contribution guide (`CONTRIBUTING.md`, `docs/development.md`)
+- [x] Document extending the system (`docs/extending.md`)
+- [x] Create debugging guide (`docs/development.md`, Debugging)
+- [x] Document release process (`docs/development.md`, Releasing)
+
+Notes:
+- 2026-11-27: `backend/tests/test_docs.py` checks that every setting is in `docs/configuration.md` and that links between the docs resolve. Found while writing: `CELERY_TASK_ALWAYS_EAGER` never worked through the API (tasks call `asyncio.run()` inside the API's event loop; verified: uploads fail with RuntimeError) and no test used it, so it and `CELERY_TASK_EAGER_PROPAGATES` were removed; the debugging guide shows calling a task directly instead (verified on the dev stack). The `embed_texts` task is registered but never queued (noted in the architecture doc).

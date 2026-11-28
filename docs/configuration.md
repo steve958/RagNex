@@ -44,8 +44,8 @@ within the limits described under [Workspace model overrides](#workspace-model-o
 | `EMBEDDING_PROVIDER` | `ollama` | yes | `ollama`, `openai` or `vllm`. |
 | `EMBEDDING_MODEL` | `bge-m3` | yes | Model that turns text into vectors for search. |
 | `EMBEDDING_DIMENSION` | `1024` | yes | Vector size the model produces (`bge-m3`: 1024, OpenAI `text-embedding-3-small`: 1536). **Must match the model.** It is fixed into the search index when a workspace's index is created, so changing it (or the model) later means deleting the workspaces' indices and reprocessing every document. |
-| `EMBEDDING_BATCH_SIZE` | `32` | yes | Texts sent per embedding request. |
-| `EMBEDDING_RPS` | `5` | yes | Embedding requests per second, per worker process. `0` means no limit. Lower it if a hosted provider rate-limits you. |
+| `EMBEDDING_BATCH_SIZE` | `32` | yes | Texts sent per embedding request (OpenAI-compatible providers; Ollama gets one text per request). |
+| `EMBEDDING_RPS` | `5` | yes | Embedding requests per second for each document being indexed (so up to `WORKER_CONCURRENCY` times this in total). `0` means no limit. Lower it if a hosted provider rate-limits you. With Ollama each request is one chunk, so the default allows 5 chunks a second per document: raise it if your model is faster than that, as on a GPU ([performance](performance.md#indexing)). |
 | `EMBEDDING_CACHE_TTL_S` | `86400` | no | How long computed vectors are cached in Redis, in seconds. |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | yes (default `http://host.docker.internal:11434`) | Ollama server. In Docker, `host.docker.internal` is the host machine. |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | yes | Endpoint for the `openai` provider. |
@@ -178,9 +178,3 @@ Prod compose only:
 | `RAGNEX_API_UPSTREAM` | frontend container | API address nginx forwards to (default `api:8000`). |
 | `RAGNEX_MAX_UPLOAD_MB` | frontend container | nginx's upload limit. Prod compose sets it from `MAX_UPLOAD_SIZE_MB`. |
 
-## Tests only
-
-| Variable | Default | Notes |
-|---|---|---|
-| `CELERY_TASK_ALWAYS_EAGER` | `false` | Run background tasks inside the API process instead of the worker. For tests; never in production. |
-| `CELERY_TASK_EAGER_PROPAGATES` | `true` | With the above, raise task errors in the caller. |

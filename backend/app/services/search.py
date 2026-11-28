@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from opensearchpy.exceptions import NotFoundError
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.app.core.config import settings
 from backend.app.core.db import get_engine
@@ -40,18 +42,15 @@ class SearchService:
     async def _load_embedding_config(self, tenant_id: uuid.UUID) -> EmbeddingConfig:
         """Load per-tenant embedding config, falling back to server defaults."""
 
-        eng = create_async_engine(settings.database_url, pool_pre_ping=True)
-        Session = async_sessionmaker(eng, expire_on_commit=False)
-        try:
-            async with Session() as db:
-                res = await db.execute(sa.select(Tenant).where(Tenant.id == tenant_id))
-                tenant = res.scalar_one_or_none()
-                raw = dict(getattr(tenant, "embedding_config", {}) or {}) if tenant is not None else {}
+        # The shared engine: a new one per search opened (and closed) a database connection
+        # every time, a large part of a search's cost under load (docs/performance.md).
+        Session = async_sessionmaker(get_engine(), expire_on_commit=False)
+        async with Session() as db:
+            res = await db.execute(sa.select(Tenant.embedding_config).where(Tenant.id == tenant_id))
+            raw = dict(res.scalar_one_or_none() or {})
 
-            # Shared with the Settings checks, so search and indexing use what owners set.
-            return effective_embedding_config(raw)
-        finally:
-            await eng.dispose()
+        # Shared with the Settings checks, so search and indexing use what owners set.
+        return effective_embedding_config(raw)
 
     @staticmethod
     def _rrf(rank: int, *, k: int = 60, weight: float = 1.0) -> float:
@@ -106,7 +105,9 @@ class SearchService:
         bm25_k = max(pool, int(bm25_k or pool * 2))
         vector_k = max(pool, int(vector_k or pool * 2))
 
-        index = self._os.ensure_index(tenant_id)
+        # The workspace's index is created with the workspace and by indexing; search only
+        # reads it (a missing index means nothing is indexed yet).
+        index = OpenSearchService.get_index_name(tenant_id)
         client = self._os._client()  # noqa: SLF001
 
         filters = [
@@ -114,8 +115,12 @@ class SearchService:
             {"terms": {"kb_id": sorted({str(k) for k in kb_ids})}},
         ]
 
+        # Only the fields hits are made of: with the stored vector (1024 numbers per chunk),
+        # each response was about ten times larger, all of it parsed and thrown away.
+        fields = ["chunk_id", "doc_id", "kb_id", "tenant_id", "content"]
         bm25_body = {
             "size": bm25_k,
+            "_source": fields,
             "query": {
                 "bool": {
                     "must": [{"match": {"content": {"query": query}}}],
@@ -139,6 +144,7 @@ class SearchService:
         # OpenSearch k-NN plugin supports filter in the knn query (preferred).
         vector_body = {
             "size": vector_k,
+            "_source": fields,
             "query": {
                 "knn": {
                     "content_vector": {
@@ -150,8 +156,15 @@ class SearchService:
             },
         }
 
-        bm25_resp = client.search(index=index, body=bm25_body)
-        vector_resp = client.search(index=index, body=vector_body)
+        # The client is synchronous: run the queries in threads, side by side, so they don't
+        # hold up the API's event loop (and every other request with it).
+        try:
+            bm25_resp, vector_resp = await asyncio.gather(
+                asyncio.to_thread(client.search, index=index, body=bm25_body),
+                asyncio.to_thread(client.search, index=index, body=vector_body),
+            )
+        except NotFoundError:
+            return []
 
         bm25_hits = self._extract_hits(bm25_resp, source="bm25")
         vector_hits = self._extract_hits(vector_resp, source="vector")
