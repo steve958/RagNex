@@ -92,8 +92,8 @@ The load test (`loadtest/locustfile.py`, using [Locust](https://locust.io)) simu
 searching, chatting, browsing and uploading. It sets itself up: it signs in once (or
 registers a throwaway account), creates a workspace, a knowledge base and an API key,
 uploads a corpus and waits until it's indexed. The simulated users use the API key,
-because sign-in is rate limited. When Locust exits, it deletes the knowledge base (and so
-its search index entries and files) and the workspace.
+because sign-in is rate limited. When Locust exits, it deletes the workspace, and with it
+everything the test created.
 
 ```bash
 uv sync --project backend --active --locked --extra dev --extra deepdoc --extra loadtest

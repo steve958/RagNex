@@ -149,11 +149,8 @@ def _tear_down(environment, **_kw):
         if setup:
             print(f"Kept workspace {setup['tenant_id']}")
         return
-    s, base = setup["session"], setup["base"]
-    # Delete the knowledge base first: that purges its search index entries and files.
-    # Deleting the workspace alone would leave them behind.
-    s.delete(f"{base}/knowledgebases/{setup['kb_id']}")
-    s.delete(f"{base}/tenants/{setup['tenant_id']}")
+    # Its search index and files are removed in the background by the worker.
+    setup["session"].delete(f"{setup['base']}/tenants/{setup['tenant_id']}")
 
 
 class RagNexUser(HttpUser):

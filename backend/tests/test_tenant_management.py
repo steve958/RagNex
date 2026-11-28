@@ -139,9 +139,15 @@ async def test_missing_users_and_memberships_are_404(team):
 
 
 @pytest.mark.asyncio
-async def test_owner_can_delete_workspace(team):
+async def test_owner_can_delete_workspace(team, monkeypatch):
+    from backend.app.tasks.purge import purge_workspace
+
+    queued = []
+    monkeypatch.setattr(purge_workspace, "apply_async", lambda args, **kw: queued.append(args))
     owner, member, stranger, t = team
     assert (await owner.call("DELETE", f"/{t}")).status_code == 200
+    # Its search indexes and files are removed in the background (test_workspace_purge.py).
+    assert queued == [[t]]
     assert t not in await _tenants_of(owner)
     assert t not in await _tenants_of(member)
     assert (await member.http.get("/api/v1/knowledgebases", headers={**member.auth, "X-Tenant-ID": t})).status_code == 403

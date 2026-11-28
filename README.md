@@ -155,8 +155,9 @@ newest version) and commit both files. CI fails if the lockfile doesn't match.
 ### Maintenance
 - `python -m backend.app.services.accounts create-user EMAIL [--workspace ID]`: creates an
   account, for when sign-up is turned off (`REGISTRATION_ENABLED=false`).
-- `python -m backend.app.services.deletion_backfill`: purges data left behind by deletions
-  made before deletion purging existed. Dry run by default; `--execute` applies it.
+- `python -m backend.app.services.deletion_backfill`: purges data left behind by deletions:
+  documents and knowledge bases deleted before deletion purging existed, and the search
+  indexes and files of deleted workspaces. Dry run by default; `--execute` applies it.
 
 ## License
 RagNex is licensed under the [MIT License](LICENSE).

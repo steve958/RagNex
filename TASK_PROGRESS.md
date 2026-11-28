@@ -170,6 +170,7 @@ Notes:
 - [x] Create tenant context middleware
 - [x] Add tenant filtering to all queries
 - [x] Test cross-tenant data isolation
+- [x] Deleting a workspace purges its search indexes and file bucket (2026-11-28; it used to delete only the database rows). A `purge_workspace` task (`tasks/purge.py`, `services/workspace_purge.py`) runs after the delete, refuses a workspace that still exists, retries, and is idempotent. `deletion_backfill` now also finds indexes and buckets whose workspace no longer exists (earlier deletions, or a document task still running at the delete) and purges them. Tests: `tests/test_workspace_purge.py`.
 
 Notes:
 - 2025-12-18: Added tenant CRUD + membership endpoints (`backend/app/api/v1/tenants.py`).
@@ -637,7 +638,7 @@ Notes:
 - `EMBEDDING_RPS` is per document being indexed, not per worker process as documented; corrected. With Ollama (one chunk per request) the default caps indexing at 5 chunks/s per document, which a GPU can exceed.
 - The models set the pace: new questions wait for the embedding model (one at a time on CPU), chat for the chat model (`gemma2:2b` on CPU: about a minute per answer, one at a time; a third queued question hit the 120 s read timeout), indexing for the embedding model (about 1.5 s per chunk on CPU).
 - Not measured: search on a large index.
-- Found, not fixed (not performance): deleting a workspace deletes its database rows but leaves its OpenSearch index and MinIO bucket behind. The load test deletes its knowledge base first, which purges both.
+- Found (not performance): deleting a workspace deleted its database rows but left its OpenSearch index and MinIO bucket behind. Fixed 2026-11-28: see P1-3.
 
 ### P6-4: Security Testing
 - [x] Run SAST tools (Bandit, Semgrep) and dependency audits (pip-audit, npm audit)

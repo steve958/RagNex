@@ -198,6 +198,15 @@ it, run `docker pull cgr.dev/chainguard/minio:latest`, put the new digest
 (`docker image inspect --format '{{index .RepoDigests 0}}' cgr.dev/chainguard/minio:latest`)
 into `docker-compose.prod.yml`, and apply.
 
+**Data of workspaces deleted before November 2026:** deleting a workspace used to leave
+its search index and uploaded files behind. To find and remove them, run the deletion
+backfill once after upgrading: as a dry run first, which lists what it would delete, then
+with `--execute`.
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec api   python -m backend.app.services.deletion_backfill
+```
+
 **Upgrading from a version without `RAGNEX_ENCRYPTION_KEY`:** add it to `.env.prod` first
 (`openssl rand -base64 32`). Compose refuses to start without it, and the upgrade encrypts
 the workspace model API keys already stored.

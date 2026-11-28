@@ -87,6 +87,10 @@ sequenceDiagram
 5. **Deletion** is two-phase: the API marks the document deleted, which hides it from
    search and the API at once, then queues `purge_document` (`tasks/purge.py`), which
    removes its index entries, chunk rows and file, and can safely run more than once.
+   Deleting a knowledge base does the same for each of its documents. Deleting a
+   **workspace** deletes its database rows at once (they cascade), then queues
+   `purge_workspace`, which deletes its search indexes and file bucket
+   (`services/workspace_purge.py`).
 
 ## A question's journey
 
